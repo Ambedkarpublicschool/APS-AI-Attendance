@@ -36,7 +36,7 @@
                     </svg>
                 </div>
                 <h3 class="text-lg font-medium text-gray-400 mt-4">स्कैनिंग के लिए तैयार</h3>
-                <p class="text-sm text-gray-500 mt-1">डेटा सिंक होने का इंतज़ार करें...</p>
+                <p id="sub-status" class="text-sm text-gray-500 mt-1">डेटा सिंक होने का इंतज़ार करें...</p>
             </div>
 
             <div id="info-result" class="hidden w-full">
@@ -55,33 +55,29 @@
     <audio id="beep-sound" src="https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav" preload="auto"></audio>
 
     <script>
-        // Aapki exact URL ko maine yahan inject kar diya hai
         const API_URL = "https://script.google.com/macros/s/AKfycbxR2l-MYhAqKrVRD68C9hgvlMqHU6GalGp18Gvyoc05QFG3ixEA9o4xk4a31G8N5uKn/exec";
 
         const video = document.getElementById('video');
         const overlay = document.getElementById('overlay');
         const statusDiv = document.getElementById('system-status');
+        const subStatus = document.getElementById('sub-status');
         const beepSound = document.getElementById('beep-sound');
         
         let faceMatcher = null;
         let isProcessing = false;
 
-        // Step 1: Sabse pahale camera ko access karo taki screen block na ho
         function startVideo() {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
                 .then(stream => { 
                     video.srcObject = stream;
-                    // Camera khulte hi AI aur Data backend se mângna shuru karein
                     loadAIAndData();
                 })
                 .catch(err => {
-                    console.error("Camera Error:", err);
-                    statusDiv.innerText = "कैमरा एरर! परमिशन दें।";
+                    statusDiv.innerText = "कैमरा परमिशन एरर!";
                     statusDiv.className = "px-3 py-1 rounded-full text-xs bg-red-500/20 text-red-400 border border-red-500/40";
                 });
         }
 
-        // Step 2: Backend GS se data fetch karna bina kisi JSONP k
         async function loadAIAndData() {
             try {
                 statusDiv.innerText = "AI मॉडल्स लोड हो रहे हैं...";
@@ -95,48 +91,62 @@
                 const response = await fetch(API_URL);
                 const resData = await response.json();
 
-                if (!resData || resData.status !== "success" || !resData.data || resData.data.length === 0) {
-                    statusDiv.innerText = "डेटा खाली है! Active छात्र या फोटो चेक करें।";
+                if (!resData || resData.status !== "success") {
+                    statusDiv.innerText = "बैकएंड एरर!";
+                    subStatus.innerText = resData.message || "डेटा फ़ॉर्मेट सही नहीं है।";
                     return;
                 }
 
-                statusDiv.innerText = "फेस एआई ट्रेनिंग चालू है...";
+                if (!resData.data || resData.data.length === 0) {
+                    statusDiv.innerText = "डेटा खाली है!";
+                    subStatus.innerText = "शीट में कोई Active छात्र नहीं मिला।";
+                    return;
+                }
+
+                statusDiv.innerText = "चेहरे ट्रेन हो रहे हैं...";
                 const labeledDescriptors = [];
                 for (let student of resData.data) {
                     if (!student.photo) continue;
                     
-                    const img = new Image();
-                    img.src = student.photo;
-                    await new Promise(r => img.onload = r);
+                    try {
+                        const img = new Image();
+                        img.src = student.photo;
+                        await new Promise(r => img.onload = r);
 
-                    const detections = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
-                                                    .withFaceLandmarks()
-                                                    .withFaceDescriptor();
-                    if (detections) {
-                        labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(
-                            student.id + "||" + student.name + "||" + student.photo, 
-                            [detections.descriptor]
-                        ));
+                        const detections = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+                                                        .withFaceLandmarks()
+                                                        .withFaceDescriptor();
+                        if (detections) {
+                            labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(
+                                student.id + "||" + student.name + "||" + student.photo, 
+                                [detections.descriptor]
+                            ));
+                        }
+                    } catch(e) {
+                        console.warn("Skipping student photo error:", student.id);
                     }
                 }
 
                 if(labeledDescriptors.length === 0) {
-                    statusDiv.innerText = "कोई भी वैलिड फोटो लोड नहीं हुई!";
+                    statusDiv.innerText = "ट्रेनिंग फ़ेल!";
+                    subStatus.innerText = "किसी छात्र की फोटो लोड नहीं हो सकी।";
                     return;
                 }
 
                 faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.55);
                 statusDiv.innerText = "सिस्टम सक्रिय (स्कैनिंग चालू)";
                 statusDiv.className = "px-3 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
+                subStatus.innerText = `${labeledDescriptors.length} छात्र लोड हुए।`;
                 
                 startScanningLoop();
             } catch (err) {
-                console.error("Fetch Error:", err);
-                statusDiv.innerText = "डेटा फेच फ़ेल! GS Web App को 'Anyone' पर रखें।";
+                console.error(err);
+                statusDiv.innerText = "लोडिंग रुकी!";
+                statusDiv.className = "px-3 py-1 rounded-full text-xs bg-red-500/20 text-red-400 border border-red-500/40";
+                subStatus.innerText = "Error: " + err.message;
             }
         }
 
-        // Step 3: Face Detection Scan Loop
         function startScanningLoop() {
             const displaySize = { width: video.clientWidth, height: video.clientHeight };
             faceapi.matchDimensions(overlay, displaySize);
@@ -163,7 +173,6 @@
             }, 800);
         }
 
-        // Step 4: Attendance Sheet update trigger (doPost pipeline)
         async function triggerAttendance(studentId, studentName, studentPhoto) {
             isProcessing = true;
             try { beepSound.play(); } catch(e){}
@@ -182,7 +191,6 @@
             statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-blue-500/20 text-blue-400 border border-blue-500/40";
 
             try {
-                // Post request mapping straight to your Code.gs doPost
                 await fetch(API_URL, {
                     method: 'POST',
                     mode: 'no-cors', 
@@ -196,7 +204,6 @@
                 statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
             }
 
-            // 3.5 seconds lock for line flow
             setTimeout(() => {
                 document.getElementById('info-placeholder').classList.remove('hidden');
                 resultDiv.classList.add('hidden');
