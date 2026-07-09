@@ -69,4 +69,19 @@ window.addEventListener("load", async () => {
 
 });
 
+console.log("Camera Started");
+
+try{
+
+    await initAI();
+
+    console.log("AI Loaded");
+
+}catch(err){
+
+    console.error(err);
+
+    alert(err.message);
+
+}
 
