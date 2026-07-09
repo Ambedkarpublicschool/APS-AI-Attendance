@@ -15,7 +15,7 @@
     <header class="p-4 bg-gray-900 border-b border-cyan-500/30 flex justify-between items-center">
         <h1 class="text-xl font-bold tracking-wider text-cyan-400">APS AI ATTENDANCE SYSTEM</h1>
         <div id="system-status" class="px-3 py-1 rounded-full text-xs bg-yellow-500/20 text-yellow-400 border border-yellow-500/40">
-            सिस्टम लोड हो रहा है...
+            कैमरा शुरू हो रहा है...
         </div>
     </header>
 
@@ -36,7 +36,7 @@
                     </svg>
                 </div>
                 <h3 class="text-lg font-medium text-gray-400 mt-4">स्कैनिंग के लिए तैयार</h3>
-                <p class="text-sm text-gray-500 mt-1">चेहरा डिटेक्ट होते ही जानकारी यहाँ दिखेगी</p>
+                <p class="text-sm text-gray-500 mt-1">सिस्टम लोड होने का इंतज़ार करें...</p>
             </div>
 
             <div id="info-result" class="hidden w-full">
@@ -49,13 +49,12 @@
     </main>
 
     <footer class="p-3 bg-gray-900 text-center text-xs text-gray-600 border-t border-gray-800">
-        Aryavart Public School © 2026 | Powered by Apps Script & Face-API
+        Aryavart Public School © 2026
     </footer>
 
     <audio id="beep-sound" src="https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav" preload="auto"></audio>
 
     <script>
-        // आपका सटीक Web App URL
         const API_URL = "https://script.google.com/macros/s/AKfycbxR2l-MYhAqKrVRD68C9hgvlMqHU6GalGp18Gvyoc05QFG3ixEA9o4xk4a31G8N5uKn/exec";
 
         const video = document.getElementById('video');
@@ -66,7 +65,21 @@
         let faceMatcher = null;
         let isProcessing = false;
 
-        // JSONP के ज़रिए डेटा सिंक करने का फंक्शन (ताकि लोड होना न अटके)
+        // सबसे पहले कैमरा चालू करने का फंक्शन
+        function startVideo() {
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+                .then(stream => { 
+                    video.srcObject = stream;
+                    // कैमरा चालू होते ही AI लोड करना शुरू करें
+                    loadAIAndData();
+                })
+                .catch(err => {
+                    console.error("Camera Error:", err);
+                    statusDiv.innerText = "कैमरा परमिशन दें!";
+                    statusDiv.className = "px-3 py-1 rounded-full text-xs bg-red-500/20 text-red-400 border border-red-500/40";
+                });
+        }
+
         function fetchStudentDataJSONP() {
             return new Promise((resolve, reject) => {
                 const callbackName = 'jsonpCallback_' + Math.round(100000 * Math.random());
@@ -75,7 +88,6 @@
                     document.body.removeChild(script);
                     resolve(data);
                 };
-
                 const script = document.createElement('script');
                 script.src = API_URL + (API_URL.indexOf('?') >= 0 ? '&' : '?') + 'callback=' + callbackName;
                 script.onerror = reject;
@@ -83,7 +95,8 @@
             });
         }
 
-        async function init() {
+        // बैकग्राउंड में AI और डेटा लोड होगा
+        async function loadAIAndData() {
             try {
                 statusDiv.innerText = "AI मॉडल्स लोड हो रहे हैं...";
                 const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
@@ -91,18 +104,15 @@
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-                statusDiv.innerText = "छात्रों का डेटा सिंक हो रहा है...";
-                
-                // JSONP से डेटा कॉल
+                statusDiv.innerText = "डेटा सिंक हो रहा है...";
                 const resData = await fetchStudentDataJSONP();
 
                 if (!resData || resData.status !== "success" || !resData.data || resData.data.length === 0) {
-                    statusDiv.innerText = "त्रुटि: शीट में एक्टिव छात्र या फोटो लिंक नहीं मिले!";
-                    statusDiv.className = "px-3 py-1 rounded-full text-xs bg-red-500/20 text-red-400 border border-red-500/40";
+                    statusDiv.innerText = "डेटा एरर या शीट खाली है!";
                     return;
                 }
 
-                statusDiv.innerText = "फेस एआई ट्रेनिंग चल रही है...";
+                statusDiv.innerText = "चेहरे सिंक हो रहे हैं...";
                 const labeledDescriptors = [];
                 for (let student of resData.data) {
                     if (!student.photo) continue;
@@ -123,30 +133,22 @@
                 }
 
                 if(labeledDescriptors.length === 0) {
-                    statusDiv.innerText = "त्रुटि: छात्रों की फोटो प्रोसेस नहीं हो सकी!";
-                    statusDiv.className = "px-3 py-1 rounded-full text-xs bg-red-500/20 text-red-400 border border-red-500/40";
+                    statusDiv.innerText = "कोई वैलिड फोटो नहीं मिली!";
                     return;
                 }
 
                 faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.55);
-                statusDiv.innerText = "सिस्टम चालू है (स्कैनिंग सक्रिय)";
+                statusDiv.innerText = "सिस्टम सक्रिय (स्कैनिंग चालू)";
                 statusDiv.className = "px-3 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
-
-                startVideo();
+                
+                startScanningLoop();
             } catch (err) {
                 console.error(err);
-                statusDiv.innerText = "लोडिंग एरर! कृपया शीट सेटिंग्स चेक करें।";
-                statusDiv.className = "px-3 py-1 rounded-full text-xs bg-red-500/20 text-red-400 border border-red-500/40";
+                statusDiv.innerText = "लोडिंग रुकी! शीट चेक करें।";
             }
         }
 
-        function startVideo() {
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
-                .then(stream => { video.srcObject = stream; })
-                .catch(err => console.error(err));
-        }
-
-        video.addEventListener('play', () => {
+        function startScanningLoop() {
             const displaySize = { width: video.clientWidth, height: video.clientHeight };
             faceapi.matchDimensions(overlay, displaySize);
 
@@ -170,7 +172,7 @@
                     }
                 }
             }, 800);
-        });
+        }
 
         async function triggerAttendance(studentId, studentName, studentPhoto) {
             isProcessing = true;
@@ -196,11 +198,10 @@
                     headers: { 'Content-Type': 'text/plain' },
                     body: JSON.stringify({ studentId: studentId })
                 });
-
                 statusLabel.innerText = "अटेंडेंस दर्ज (P)";
                 statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
             } catch (err) {
-                statusLabel.innerText = "दर्ज हुई (चेक शीट)";
+                statusLabel.innerText = "दर्ज (चेक शीट)";
                 statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
             }
 
@@ -212,7 +213,8 @@
             }, 3500);
         }
 
-        window.onload = init;
+        // पेज लोड होते ही सबसे पहले कैमरा ऑन करो
+        window.onload = startVideo;
     </script>
 </body>
 </html>
