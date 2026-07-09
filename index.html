@@ -1,13 +1,13 @@
-
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
 
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport"
+content="width=device-width,initial-scale=1">
 
-<title>APS AI Attendance</title>
+<title>APS AI Attendance V2</title>
 
 <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="style.css">
@@ -20,38 +20,47 @@
 
     <h1>APS AI Attendance</h1>
 
-    <p id="status">Initializing...</p>
+    <p id="status">
+        Initializing...
+    </p>
 
 </div>
 
 <div id="cameraContainer">
 
-<video
-  id="video"
-  autoplay
-  playsinline
-  muted
-></video>
+    <video
+        id="video"
+        autoplay
+        playsinline
+        muted
+    ></video>
 
-<canvas id="overlay"></canvas>
+    <canvas id="overlay"></canvas>
 
 </div>
 
 <div id="studentCard">
 
-    <img id="studentPhoto">
+    <img
+        id="studentPhoto"
+        src=""
+        alt="Student">
 
-    <h2 id="studentName">Waiting...</h2>
+    <div>
 
-    <p id="studentClass"></p>
+        <h2 id="studentName">
+            Waiting...
+        </h2>
+
+        <p id="studentClass"></p>
+
+        <p id="confidence"></p>
+
+    </div>
 
 </div>
-
-
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js"></script>
 
 <script type="module" src="app.js"></script>
 
 </body>
-
 </html>
