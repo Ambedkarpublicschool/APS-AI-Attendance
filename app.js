@@ -57,31 +57,3 @@ async function startCamera() {
 
 }
 
-window.addEventListener("load", startCamera);
-
-import { initAI } from "./ai.js";
-
-window.addEventListener("load", async () => {
-
-    await startCamera();
-
-    await initAI();
-
-});
-
-console.log("Camera Started");
-
-try{
-
-    await initAI();
-
-    console.log("AI Loaded");
-
-}catch(err){
-
-    console.error(err);
-
-    alert(err.message);
-
-}
-
