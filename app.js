@@ -8,16 +8,15 @@ async function startCamera(){
     try{
 
         statusText.innerHTML="Requesting Camera Permission...";
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-
-            video:{
-                facingMode:"environment"
-            },
-
-            audio:false
-
-        });
+        
+const stream = await navigator.mediaDevices.getUserMedia({
+  video: {
+    facingMode: "user",
+    width: { ideal: 1280 },
+    height: { ideal: 720 }
+  },
+  audio: false
+});
 
         video.srcObject=stream;
 
