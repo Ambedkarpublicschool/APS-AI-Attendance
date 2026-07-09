@@ -33,6 +33,7 @@ async function initApp() {
         updateStatus("Opening Camera...");
 
         await startCamera();
+        await initAI();
 
         updateStatus("Camera Ready");
 
