@@ -67,7 +67,6 @@
         let isProcessing = false;
 
         function startVideo() {
-            // मोबाइल के फ्रंट कैमरे के लिए रेजोल्यूशन सेट किया
             navigator.mediaDevices.getUserMedia({ 
                 video: { 
                     facingMode: "user",
@@ -88,7 +87,8 @@
             try {
                 statusDiv.innerText = "AI मॉडल्स लोड हो रहे हैं...";
                 const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
-                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                // हाई-एक्यूरेसी के लिए फुल डिटेक्शन मॉडल लोड करना
+                await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
@@ -114,8 +114,8 @@
                         img.src = student.photo; 
                         await new Promise((resolve) => img.onload = resolve);
 
-                        // बेहतर मैचिंग के लिए TinyFaceDetector की जगह डिफॉल्ट फुल डिटेक्टर का इस्तेमाल कर रहे हैं केवल ट्रेनिंग फेज में
-                        const detections = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+                        // ट्रेनिंग के समय फुल एक्यूरेसी मॉडल यूज़ कर रहे हैं
+                        const detections = await faceapi.detectSingleFace(img)
                                                         .withFaceLandmarks()
                                                         .withFaceDescriptor();
                         if (detections) {
@@ -135,8 +135,8 @@
                     return;
                 }
 
-                // डिस्टेंस थ्रेशोल्ड को 0.55 से बढ़ाकर 0.68 किया (ताकि चेहरा तुरंत पकड़े)
-                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.68);
+                // डिस्टेंस थ्रेशोल्ड को 0.72 किया (यह एंगल और लाइट बदलने पर भी सटीक मैच ढूंढ निकालेगा)
+                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.72);
                 statusDiv.innerText = "सिस्टम सक्रिय (स्कैनिंग चालू)";
                 statusDiv.className = "px-3 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
                 subStatus.innerText = `${labeledDescriptors.length} छात्र लोड हुए।`;
@@ -156,8 +156,8 @@
             setInterval(async () => {
                 if (isProcessing || !faceMatcher) return;
 
-                // लाइव स्कैनिंग को फ़ास्ट रखने के लिए tinyDetector बेस्ट है
-                const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.4 }))
+                // लाइव स्कैनिंग को हाई-एक्यूरेसी मोड (ssdMobilenetv1) पर शिफ्ट कर दिया है
+                const detections = await faceapi.detectAllFaces(video)
                                                 .withFaceLandmarks()
                                                 .withFaceDescriptors();
                 
@@ -172,11 +172,11 @@
                         triggerAttendance(id, name, photo);
                         break; 
                     } else {
-                        subStatus.innerText = "मैचिंग एरर: चेहरा डेटाबेस से नहीं मिला (Unknown)";
+                        subStatus.innerText = "चेहरा डेटाबेस से मैच नहीं हुआ (Unknown)";
                         subStatus.className = "text-sm text-yellow-400 font-semibold mt-1";
                     }
                 }
-            }, 750); // स्कैनिंग स्पीड को हल्का सा और फ़ास्ट किया
+            }, 600); // स्पीड को और ऑप्टिमाइज किया
         }
 
         async function triggerAttendance(studentId, studentName, studentPhoto) {
