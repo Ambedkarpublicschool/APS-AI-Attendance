@@ -73,7 +73,7 @@ window.addEventListener("load", async () => {
 
         console.error(err);
 
-        alert(err);
+        alert(err.message);
 
     }
 
