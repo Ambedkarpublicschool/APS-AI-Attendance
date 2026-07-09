@@ -1,0 +1,8 @@
+{
+  "name":"APS AI Attendance",
+  "short_name":"APS AI",
+  "display":"standalone",
+  "background_color":"#05070b",
+  "theme_color":"#05070b",
+  "start_url":"./"
+}
