@@ -1,81 +1,185 @@
-const video = document.getElementById("video");
-const loader = document.getElementById("loader");
-const statusText = document.getElementById("status");
-const cameraContainer = document.getElementById("cameraContainer");
+// ======================================
+// APS AI Attendance V2
+// Camera Engine
+// ======================================
+
+let video;
+let overlay;
+let loader;
+let statusText;
+let studentCard;
 
 let stream = null;
 
-async function startCamera() {
+// Future AI Hook
+let detector = null;
+
+// ======================================
+// App Start
+// ======================================
+
+window.addEventListener("load", initApp);
+
+async function initApp() {
+
+    video = document.getElementById("video");
+    overlay = document.getElementById("overlay");
+    loader = document.getElementById("loader");
+    statusText = document.getElementById("status");
+    studentCard = document.getElementById("studentCard");
 
     try {
 
-        statusText.innerHTML = "Opening Front Camera...";
+        updateStatus("Opening Camera...");
 
-        try {
+        await startCamera();
 
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    facingMode: { ideal: "user" },
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                },
-                audio: false
-            });
-
-        } catch (e) {
-
-            // अगर Front Camera न मिले
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: true,
-                audio: false
-            });
-
-        }
-
-        video.srcObject = stream;
-
-        await new Promise(resolve => {
-            video.onloadedmetadata = resolve;
-        });
-
-        await video.play();
-      
+        updateStatus("Camera Ready");
 
         loader.style.display = "none";
-        cameraContainer.style.display = "block";
 
-        console.log("Camera Started");
+        document
+            .getElementById("cameraContainer")
+            .style.display = "block";
 
-    } catch (err) {
+        // AI Future Hook
+        // await initAI();
+
+    }
+
+    catch (err) {
 
         console.error(err);
 
-        statusText.innerHTML =
-            err.name + "<br>" + err.message;
+        updateStatus(err.message);
 
     }
 
 }
 
-import { initAI } from "./ai.js";
+// ======================================
+// Camera
+// ======================================
 
-window.addEventListener("load", async () => {
+async function startCamera() {
 
-    await startCamera();
+    stopCamera();
 
-    try{
+    const constraints = {
 
-        await initAI();
+        audio: false,
 
-        console.log("AI READY");
+        video: {
 
-    }catch(err){
+            facingMode: {
+                ideal: "user"
+            },
 
-        console.error(err);
+            width: {
+                ideal: 1280
+            },
 
-        alert(err.message);
+            height: {
+                ideal: 720
+            }
+
+        }
+
+    };
+
+    try {
+
+        stream =
+        await navigator
+        .mediaDevices
+        .getUserMedia(constraints);
 
     }
 
-});
+    catch {
 
+        stream =
+        await navigator
+        .mediaDevices
+        .getUserMedia({
+
+            video: true,
+            audio: false
+
+        });
+
+    }
+
+    video.srcObject = stream;
+
+    await video.play();
+
+    await waitVideoReady();
+
+    resizeCanvas();
+
+}
+
+// ======================================
+// Stop Camera
+// ======================================
+
+function stopCamera() {
+
+    if (!stream) return;
+
+    stream
+        .getTracks()
+        .forEach(track => track.stop());
+
+}
+
+// ======================================
+// Wait
+// ======================================
+
+function waitVideoReady() {
+
+    return new Promise(resolve => {
+
+        video.onloadedmetadata = () => {
+
+            resolve();
+
+        };
+
+    });
+
+}
+
+// ======================================
+// Canvas
+// ======================================
+
+function resizeCanvas() {
+
+    overlay.width = video.videoWidth;
+
+    overlay.height = video.videoHeight;
+
+}
+
+// ======================================
+// Status
+// ======================================
+
+function updateStatus(text) {
+
+    console.log(text);
+
+    statusText.innerHTML = text;
+
+}
+
+// ======================================
+// Orientation
+// ======================================
+
+window.addEventListener("resize", resizeCanvas);
+
+window.addEventListener("orientationchange", resizeCanvas);
