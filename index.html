@@ -40,7 +40,7 @@
             </div>
 
             <div id="info-result" class="hidden w-full">
-                <img id="student-img" src="" class="w-24 h-24 rounded-full mx-auto object-cover border-2 border-emerald-500" alt="Student">
+                <img id="student-img" src="" crossorigin="anonymous" class="w-24 h-24 rounded-full mx-auto object-cover border-2 border-emerald-500" alt="Student">
                 <h2 id="student-name" class="text-2xl font-bold text-emerald-400 mt-3">---</h2>
                 <p id="student-id" class="text-sm text-cyan-400 mt-1">ID: ---</p>
                 <div id="mark-status" class="mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block">PROCESSING</div>
@@ -74,7 +74,6 @@
                 })
                 .catch(err => {
                     statusDiv.innerText = "कैमरा परमिशन एरर!";
-                    statusDiv.className = "px-3 py-1 rounded-full text-xs bg-red-500/20 text-red-400 border border-red-500/40";
                 });
         }
 
@@ -91,27 +90,26 @@
                 const response = await fetch(API_URL);
                 const resData = await response.json();
 
-                if (!resData || resData.status !== "success") {
-                    statusDiv.innerText = "बैकएंड एरर!";
-                    subStatus.innerText = resData.message || "डेटा फ़ॉर्मेट सही नहीं है।";
-                    return;
-                }
-
-                if (!resData.data || resData.data.length === 0) {
-                    statusDiv.innerText = "डेटा खाली है!";
-                    subStatus.innerText = "शीट में कोई Active छात्र नहीं मिला।";
+                if (!resData || resData.status !== "success" || !resData.data || resData.data.length === 0) {
+                    statusDiv.innerText = "डेटा एरर!";
+                    subStatus.innerText = "शीट या सेशन चेक करें।";
                     return;
                 }
 
                 statusDiv.innerText = "चेहरे ट्रेन हो रहे हैं...";
                 const labeledDescriptors = [];
+                
                 for (let student of resData.data) {
                     if (!student.photo) continue;
                     
                     try {
                         const img = new Image();
+                        img.crossOrigin = "anonymous"; // CORS प्रोटेक्शन बाईपास करने के लिए
                         img.src = student.photo;
-                        await new Promise(r => img.onload = r);
+                        await new Promise((resolve, reject) => {
+                            img.onload = resolve;
+                            img.onerror = reject;
+                        });
 
                         const detections = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
                                                         .withFaceLandmarks()
@@ -123,13 +121,13 @@
                             ));
                         }
                     } catch(e) {
-                        console.warn("Skipping student photo error:", student.id);
+                        console.warn("Skipping image load error for ID:", student.id);
                     }
                 }
 
                 if(labeledDescriptors.length === 0) {
                     statusDiv.innerText = "ट्रेनिंग फ़ेल!";
-                    subStatus.innerText = "किसी छात्र की फोटो लोड नहीं हो सकी।";
+                    subStatus.innerText = "इमेज यूआरएल लोड नहीं हो सके।";
                     return;
                 }
 
@@ -142,7 +140,6 @@
             } catch (err) {
                 console.error(err);
                 statusDiv.innerText = "लोडिंग रुकी!";
-                statusDiv.className = "px-3 py-1 rounded-full text-xs bg-red-500/20 text-red-400 border border-red-500/40";
                 subStatus.innerText = "Error: " + err.message;
             }
         }
