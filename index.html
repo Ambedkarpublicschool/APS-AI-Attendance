@@ -1,67 +1,233 @@
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="hi">
 <head>
-
-<meta charset="UTF-8">
-<meta name="viewport"
-content="width=device-width,initial-scale=1">
-
-<title>APS AI Attendance V2</title>
-
-<link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="style.css">
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APS AI Attendance System</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- Face-API.js Loading -->
+    <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <style>
+        .cyber-border {
+            box-shadow: 0 0 15px rgba(5, 213, 250, 0.6);
+        }
+    </style>
 </head>
+<body class="bg-gray-950 text-white font-sans min-h-screen flex flex-col justify-between">
 
-<body>
+    <!-- Header -->
+    <header class="p-4 bg-gray-900 border-b border-cyan-500/30 flex justify-between items-center">
+        <h1 class="text-xl font-bold tracking-wider text-cyan-400">APS AI ATTENDANCE SYSTEM</h1>
+        <div id="system-status" class="px-3 py-1 rounded-full text-xs bg-yellow-500/20 text-yellow-400 border border-yellow-500/40">
+            सिस्टम लोड हो रहा है...
+        </div>
+    </header>
 
-<div id="loader">
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col md:flex-row p-4 gap-4 max-w-6xl mx-auto w-full items-center justify-center">
+        
+        <!-- Video Camera Section -->
+        <div class="relative flex flex-col items-center bg-gray-900 p-3 rounded-xl border border-gray-800 cyber-border max-w-lg w-full">
+            <div class="relative w-full aspect-video bg-black rounded-lg overflow-hidden">
+                <video id="video" autoplay muted playsinline class="w-full h-full object-cover"></video>
+                <canvas id="overlay" class="absolute top-0 left-0 w-full h-full"></canvas>
+            </div>
+            <p class="text-xs text-gray-400 mt-2">कैमरे के सामने सीधे देखें</p>
+        </div>
 
-    <h1>APS AI Attendance</h1>
+        <!-- Student Info Display -->
+        <div id="info-card" class="bg-gray-900 p-6 rounded-xl border border-gray-800 w-full max-w-sm flex flex-col items-center text-center justify-center h-64 min-h-[16rem]">
+            <div id="info-placeholder">
+                <div class="w-20 h-20 bg-gray-800 rounded-full flex items-center justify-center mx-auto text-gray-600 border border-gray-700">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                </div>
+                <h3 class="text-lg font-medium text-gray-400 mt-4">स्कैनिंग के लिए तैयार</h3>
+                <p class="text-sm text-gray-500 mt-1">चेहरा डिटेक्ट होते ही जानकारी यहाँ दिखेगी</p>
+            </div>
 
-    <p id="status">
-        Initializing...
-    </p>
+            <!-- Dynamic Result (Hidden Initially) -->
+            <div id="info-result" class="hidden w-full">
+                <img id="student-img" src="" class="w-24 h-24 rounded-full mx-auto object-cover border-2 border-emerald-500" alt="Student">
+                <h2 id="student-name" class="text-2xl font-bold text-emerald-400 mt-3">---</h2>
+                <p id="student-id" class="text-sm text-cyan-400 mt-1">ID: ---</p>
+                <div id="mark-status" class="mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block">
+                    PRESENT
+                </div>
+            </div>
+        </div>
 
-</div>
+    </main>
 
-<div id="cameraContainer">
+    <!-- Footer -->
+    <footer class="p-3 bg-gray-900 text-center text-xs text-gray-600 border-t border-gray-800">
+        Aryavart Public School © 2026 | Powered by Apps Script & Face-API
+    </footer>
 
-    <video
-        id="video"
-        autoplay
-        playsinline
-        muted
-    ></video>
+    <!-- Beep Sound -->
+    <audio id="beep-sound" src="https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav" preload="auto"></audio>
 
-    <canvas id="overlay"></canvas>
+    <!-- App Logic Script -->
+    <script>
+        // आपका लाइव Apps Script Web App URL यहाँ सेट कर दिया है
+        const API_URL = "https://script.google.com/macros/s/AKfycbxR2l-MYhAqKrVRD68C9hgvlMqHU6GalGp18Gvyoc05QFG3ixEA9o4xk4a31G8N5uKn/exec";
 
-</div>
+        const video = document.getElementById('video');
+        const overlay = document.getElementById('overlay');
+        const statusDiv = document.getElementById('system-status');
+        const beepSound = document.getElementById('beep-sound');
+        
+        let faceMatcher = null;
+        let isProcessing = false; // 3.5 सेकंड का फ्रीज लॉक लगाने के लिए
 
-<div id="studentCard">
+        // 1. एआई मॉडल्स और डेटा लोड करना
+        async function init() {
+            try {
+                statusDiv.innerText = "AI मॉडल्स लोड हो रहे हैं...";
+                const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+                await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-    <img
-        id="studentPhoto"
-        src=""
-        alt="Student">
+                statusDiv.innerText = "छात्रों का डेटा सिंक हो रहा है...";
+                const response = await fetch(API_URL);
+                const resData = await response.json();
 
-    <div>
+                if (resData.status !== "success" || !resData.data || resData.data.length === 0) {
+                    statusDiv.innerText = "त्रुटि: डेटा नहीं मिला या फ़ोटो खाली हैं!";
+                    statusDiv.className = "px-3 py-1 rounded-full text-xs bg-red-500/20 text-red-400 border border-red-500/40";
+                    return;
+                }
 
-        <h2 id="studentName">
-            Waiting...
-        </h2>
+                // छात्रों के बेस64 चेहरों को ट्रेन करना
+                const labeledDescriptors = [];
+                for (let student of resData.data) {
+                    if (!student.photo) continue;
+                    
+                    const img = new Image();
+                    img.src = student.photo;
+                    await new Promise(r => img.onload = r);
 
-        <p id="studentClass"></p>
+                    const detections = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+                                                    .withFaceLandmarks()
+                                                    .withFaceDescriptor();
+                    if (detections) {
+                        labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(
+                            student.id + "||" + student.name + "||" + student.photo, 
+                            [detections.descriptor]
+                        ));
+                    }
+                }
 
-        <p id="confidence"></p>
+                if(labeledDescriptors.length === 0) {
+                    statusDiv.innerText = "किसी भी छात्र की फोटो वैलिड नहीं है!";
+                    return;
+                }
 
-    </div>
+                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6); // 60% मैच थ्रेशोल्ड
+                statusDiv.innerText = "सिस्टम चालू है (स्कैनिंग सक्रिय)";
+                statusDiv.className = "px-3 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
 
-</div>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js"></script>
-    
-<script type="module" src="app.js"></script>
+                startVideo();
+            } catch (err) {
+                console.error(err);
+                statusDiv.innerText = "सिस्टम लोड फ़ेल!";
+                statusDiv.className = "px-3 py-1 rounded-full text-xs bg-red-500/20 text-red-400 border border-red-500/40";
+            }
+        }
 
+        // 2. कैमरा चालू करना
+        function startVideo() {
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+                .then(stream => { video.srcObject = stream; })
+                .catch(err => console.error("कैमरा एक्सेस एरर:", err));
+        }
+
+        // 3. रीयल-टाइम स्कैन लूप
+        video.addEventListener('play', () => {
+            const displaySize = { width: video.clientWidth, height: video.clientHeight };
+            faceapi.matchDimensions(overlay, displaySize);
+
+            setInterval(async () => {
+                if (isProcessing || !faceMatcher) return; // अगर 3.5 सेकंड का फ्रीज लॉक है तो रुकें
+
+                const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+                                                .withFaceLandmarks()
+                                                .withFaceDescriptors();
+                
+                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
+                faceapi.draw.drawDetections(overlay, resizedDetections);
+
+                for (const detection of resizedDetections) {
+                    const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+                    
+                    if (bestMatch.label !== 'unknown') {
+                        const [id, name, photo] = bestMatch.label.split('||');
+                        triggerAttendance(id, name, photo);
+                        break; 
+                    }
+                }
+            }, 800); // हर 800ms पर फ्रेम स्कैन करेगा
+        });
+
+        // 4. अटेंडेंस सबमिट करना और UI लॉक (Freeze) करना
+        async function triggerAttendance(studentId, studentName, studentPhoto) {
+            isProcessing = true; // लॉक चालू
+            
+            // ऑडियो और वाइब्रेशन फीडबैक
+            try { beepSound.play(); } catch(e){}
+            if (navigator.vibrate) navigator.vibrate(200);
+
+            // तुरंत UI पर छात्र की जानकारी फ्रीज करें
+            document.getElementById('info-placeholder').classList.add('hidden');
+            const resultDiv = document.getElementById('info-result');
+            resultDiv.classList.remove('hidden');
+            
+            document.getElementById('student-name').innerText = studentName;
+            document.getElementById('student-id').innerText = `ID: ${studentId}`;
+            document.getElementById('student-img').src = studentPhoto;
+            
+            const statusLabel = document.getElementById('mark-status');
+            statusLabel.innerText = "प्रोसेसिंग...";
+            statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-blue-500/20 text-blue-400 border border-blue-500/40";
+
+            // बैकएंड शीट एपीआई पर भेजना
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ studentId: studentId })
+                });
+                const result = await response.json();
+
+                if (result.status === "success") {
+                    statusLabel.innerText = "अटेंडेंस दर्ज (P)";
+                    statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
+                } else if (result.status === "already") {
+                    statusLabel.innerText = "पहले से दर्ज है!";
+                    statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-yellow-500/20 text-yellow-400 border border-yellow-500/40";
+                } else {
+                    statusLabel.innerText = "त्रुटि!";
+                    statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-red-500/20 text-red-400 border border-red-500/40";
+                }
+            } catch (err) {
+                statusLabel.innerText = "नेटवर्क एरर!";
+                statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-red-500/20 text-red-400 border border-red-500/40";
+            }
+
+            // 3.5 सेकंड बाद लॉक हटाना ताकि अगला छात्र आ सके
+            setTimeout(() => {
+                document.getElementById('info-placeholder').removeclassName = "hidden"; // इसे ठीक करके रिसेट करना
+                document.getElementById('info-placeholder').classList.remove('hidden');
+                resultDiv.classList.add('hidden');
+                overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
+                isProcessing = false; // लॉक खुला
+            }, 3500);
+        }
+
+        window.onload = init;
+    </script>
 </body>
 </html>
