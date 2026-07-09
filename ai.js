@@ -1,12 +1,21 @@
 import { CONFIG } from "./config.js";
 
+let vision;
 let detector;
 
-export async function initAI(){
+export async function initAI() {
 
-    console.log("Loading AI...");
+    console.log("Loading MediaPipe...");
 
-    const vision =
+    const {
+
+        FilesetResolver,
+
+        FaceDetector
+
+    } = window;
+
+    vision =
     await FilesetResolver.forVisionTasks(
 
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
@@ -22,19 +31,21 @@ export async function initAI(){
 
             baseOptions:{
 
-                modelAssetPath:CONFIG.MODEL_URL
+                modelAssetPath:
+                CONFIG.MODEL_URL
 
             },
 
-            runningMode:CONFIG.runningMode,
+            runningMode:"VIDEO",
 
-            minDetectionConfidence:
-            CONFIG.scoreThreshold
+            minDetectionConfidence:0.60
 
         }
 
     );
 
-    console.log("AI Ready");
+    console.log("AI READY");
+
+    return detector;
 
 }
