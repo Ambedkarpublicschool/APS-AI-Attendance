@@ -39,6 +39,7 @@ async function startCamera() {
         });
 
         await video.play();
+        await initAI();
 
         loader.style.display = "none";
         cameraContainer.style.display = "block";
