@@ -36,7 +36,7 @@
                     </svg>
                 </div>
                 <h3 class="text-lg font-medium text-gray-400 mt-4">स्कैनिंग के लिए तैयार</h3>
-                <p class="text-sm text-gray-500 mt-1">सिस्टम लोड होने का इंतज़ार करें...</p>
+                <p class="text-sm text-gray-500 mt-1">डेटा सिंक होने का इंतज़ार करें...</p>
             </div>
 
             <div id="info-result" class="hidden w-full">
@@ -55,6 +55,7 @@
     <audio id="beep-sound" src="https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav" preload="auto"></audio>
 
     <script>
+        // Aapki exact URL ko maine yahan inject kar diya hai
         const API_URL = "https://script.google.com/macros/s/AKfycbxR2l-MYhAqKrVRD68C9hgvlMqHU6GalGp18Gvyoc05QFG3ixEA9o4xk4a31G8N5uKn/exec";
 
         const video = document.getElementById('video');
@@ -65,37 +66,22 @@
         let faceMatcher = null;
         let isProcessing = false;
 
-        // सबसे पहले कैमरा चालू करने का फंक्शन
+        // Step 1: Sabse pahale camera ko access karo taki screen block na ho
         function startVideo() {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
                 .then(stream => { 
                     video.srcObject = stream;
-                    // कैमरा चालू होते ही AI लोड करना शुरू करें
+                    // Camera khulte hi AI aur Data backend se mângna shuru karein
                     loadAIAndData();
                 })
                 .catch(err => {
                     console.error("Camera Error:", err);
-                    statusDiv.innerText = "कैमरा परमिशन दें!";
+                    statusDiv.innerText = "कैमरा एरर! परमिशन दें।";
                     statusDiv.className = "px-3 py-1 rounded-full text-xs bg-red-500/20 text-red-400 border border-red-500/40";
                 });
         }
 
-        function fetchStudentDataJSONP() {
-            return new Promise((resolve, reject) => {
-                const callbackName = 'jsonpCallback_' + Math.round(100000 * Math.random());
-                window[callbackName] = function(data) {
-                    delete window[callbackName];
-                    document.body.removeChild(script);
-                    resolve(data);
-                };
-                const script = document.createElement('script');
-                script.src = API_URL + (API_URL.indexOf('?') >= 0 ? '&' : '?') + 'callback=' + callbackName;
-                script.onerror = reject;
-                document.body.appendChild(script);
-            });
-        }
-
-        // बैकग्राउंड में AI और डेटा लोड होगा
+        // Step 2: Backend GS se data fetch karna bina kisi JSONP k
         async function loadAIAndData() {
             try {
                 statusDiv.innerText = "AI मॉडल्स लोड हो रहे हैं...";
@@ -104,15 +90,17 @@
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-                statusDiv.innerText = "डेटा सिंक हो रहा है...";
-                const resData = await fetchStudentDataJSONP();
+                statusDiv.innerText = "छात्रों का डेटा सिंक हो रहा है...";
+                
+                const response = await fetch(API_URL);
+                const resData = await response.json();
 
                 if (!resData || resData.status !== "success" || !resData.data || resData.data.length === 0) {
-                    statusDiv.innerText = "डेटा एरर या शीट खाली है!";
+                    statusDiv.innerText = "डेटा खाली है! Active छात्र या फोटो चेक करें।";
                     return;
                 }
 
-                statusDiv.innerText = "चेहरे सिंक हो रहे हैं...";
+                statusDiv.innerText = "फेस एआई ट्रेनिंग चालू है...";
                 const labeledDescriptors = [];
                 for (let student of resData.data) {
                     if (!student.photo) continue;
@@ -133,7 +121,7 @@
                 }
 
                 if(labeledDescriptors.length === 0) {
-                    statusDiv.innerText = "कोई वैलिड फोटो नहीं मिली!";
+                    statusDiv.innerText = "कोई भी वैलिड फोटो लोड नहीं हुई!";
                     return;
                 }
 
@@ -143,11 +131,12 @@
                 
                 startScanningLoop();
             } catch (err) {
-                console.error(err);
-                statusDiv.innerText = "लोडिंग रुकी! शीट चेक करें।";
+                console.error("Fetch Error:", err);
+                statusDiv.innerText = "डेटा फेच फ़ेल! GS Web App को 'Anyone' पर रखें।";
             }
         }
 
+        // Step 3: Face Detection Scan Loop
         function startScanningLoop() {
             const displaySize = { width: video.clientWidth, height: video.clientHeight };
             faceapi.matchDimensions(overlay, displaySize);
@@ -174,6 +163,7 @@
             }, 800);
         }
 
+        // Step 4: Attendance Sheet update trigger (doPost pipeline)
         async function triggerAttendance(studentId, studentName, studentPhoto) {
             isProcessing = true;
             try { beepSound.play(); } catch(e){}
@@ -192,9 +182,10 @@
             statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-blue-500/20 text-blue-400 border border-blue-500/40";
 
             try {
+                // Post request mapping straight to your Code.gs doPost
                 await fetch(API_URL, {
                     method: 'POST',
-                    mode: 'no-cors',
+                    mode: 'no-cors', 
                     headers: { 'Content-Type': 'text/plain' },
                     body: JSON.stringify({ studentId: studentId })
                 });
@@ -205,6 +196,7 @@
                 statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
             }
 
+            // 3.5 seconds lock for line flow
             setTimeout(() => {
                 document.getElementById('info-placeholder').classList.remove('hidden');
                 resultDiv.classList.add('hidden');
@@ -213,7 +205,6 @@
             }, 3500);
         }
 
-        // पेज लोड होते ही सबसे पहले कैमरा ऑन करो
         window.onload = startVideo;
     </script>
 </body>
