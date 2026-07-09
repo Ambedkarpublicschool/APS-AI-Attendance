@@ -67,3 +67,5 @@ window.addEventListener("load", async () => {
     await initAI();
 
 });
+
+import { initAI } from "./ai.js";
