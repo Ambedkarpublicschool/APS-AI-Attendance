@@ -2,7 +2,7 @@
 // APS AI Attendance V2
 // Camera Engine
 // ======================================
-
+import { initAI } from "./ai.js";
 let video;
 let overlay;
 let loader;
