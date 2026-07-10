@@ -41,7 +41,7 @@
 
             <div id="info-result" class="hidden w-full flex flex-col items-center">
                 <div class="relative">
-                    <img id="student-img" src="" class="w-28 h-28 md:w-36 md:h-36 rounded-full object-cover border-4 border-emerald-500 shadow-xl" alt="Student">
+                    <img id="student-img" src="" class="w-28 h-28 md:w-36 md:h-36 rounded-full object-cover border-4 border-emerald-500 shadow-xl shadow-emerald-500/30" alt="Student" crossorigin="anonymous">
                 </div>
                 <h2 id="student-name" class="text-3xl md:text-4xl font-black text-emerald-400 mt-5 uppercase tracking-wide">---</h2>
                 <p id="student-id" class="text-xs md:text-sm font-black text-cyan-400 mt-1 tracking-widest bg-cyan-950 px-3 py-1 rounded-md border border-cyan-500/20">ID: ---</p>
@@ -103,9 +103,10 @@
                 const labeledDescriptors = [];
                 
                 for (let student of resData.data) {
-                    if (!student.photo || student.photo.length < 50) continue; 
+                    if (!student.photo || student.photo.length < 10) continue; 
                     try {
                         const img = new Image(); 
+                        img.crossOrigin = "anonymous"; // सुरक्षा बाईपास
                         img.src = student.photo; 
                         await new Promise((resolve, reject) => {
                             img.onload = resolve; img.onerror = reject; 
@@ -115,15 +116,17 @@
                         if (detections) {
                             labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(`${student.id}||${student.name}||${student.photo}`, [detections.descriptor]));
                         }
-                    } catch(e) {}
+                    } catch(e) {
+                        console.log("Image loading skipped for: ", student.name);
+                    }
                 }
 
                 if(labeledDescriptors.length === 0) { 
                     statusDiv.innerText = "MAP DATA EMPTY!"; return; 
                 }
 
-                // बैलेंस्ड थ्रेशोल्ड (0.48) ताकि HD फोटो से चेहरा तुरंत 100% मैच हो
-                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.48);
+                // डायरेक्ट लाइव लिंक के लिए बेस्ट बैलेंस्ड थ्रेशोल्ड (0.45)
+                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.45);
                 statusDiv.innerText = "AI SECURITY SECURED";
                 statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
                 subStatus.innerText = "LOOK DIRECTLY INTO CAMERA...";
@@ -187,6 +190,7 @@
         async function triggerAttendance(studentId, studentName, studentPhoto) {
             isProcessing = true;
             
+            // तुरंत बिना किसी नेटवर्क लैग के बीप बजाना
             try {
                 beepSound.currentTime = 0;
                 beepSound.play();
@@ -203,7 +207,7 @@
             
             laserBar.className = "absolute left-0 w-full scanner-line verified";
 
-            // [BUSTER REDIRECT POST FIX] - बैकएंड में 'P' को 100% राइट करने का तरीका
+            // कड़क अटेंडेंस सबमिशन नेटवर्क हिट
             try {
                 const sheetTriggerUrl = `${BASE_API_URL}?studentId=${encodeURIComponent(studentId)}`;
                 await fetch(sheetTriggerUrl, { method: 'POST', mode: 'no-cors' });
