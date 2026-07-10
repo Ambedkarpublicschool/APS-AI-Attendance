@@ -10,7 +10,6 @@
         body { overflow: hidden; touch-action: manipulation; background-color: #030712; }
         .scanner-container { position: relative; box-shadow: 0 0 30px rgba(6, 182, 212, 0.25); border: 2px solid rgba(6, 182, 212, 0.4); }
         .scanner-line { position: absolute; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, transparent, #06b6d4, transparent); animation: scan 2.5s linear infinite; box-shadow: 0 0 15px #06b6d4; }
-        .scanner-line.blink-mode { background: linear-gradient(90deg, transparent, #eab308, transparent); box-shadow: 0 0 15px #eab308; animation: scan 1.2s linear infinite; }
         .scanner-line.verified { background: linear-gradient(90deg, transparent, #10b981, transparent); box-shadow: 0 0 15px #10b981; animation: none; top: 50%; }
         @keyframes scan { 0% { top: 0%; } 50% { top: 100%; } 100% { top: 0%; } }
     </style>
@@ -66,39 +65,14 @@
         
         let faceMatcher = null;
         let isProcessing = false;
-        let blinkHistory = [];
-        const BLINK_THRESHOLD = 0.23; 
-
-        function requestFullScreen() {
-            if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
-        }
 
         function startVideo() {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640, height: 480 } })
             .then(stream => { 
                 video.srcObject = stream;
-                document.body.addEventListener('click', requestFullScreen, { once: true });
                 loadAIAndData();
             })
             .catch(err => { statusDiv.innerText = "CAMERA ERROR!"; });
-        }
-
-        // इमेज को बिना किसी CORS ब्लॉक के लाइव फेच करने का कड़क इन-मेमोरी इंजन
-        async function fetchImageAsBase64(fileId) {
-            const url = `https://images1-focus-opensocial.googleusercontent.com/gadgets/proxy?container=focus&refresh=2592000&url=${encodeURIComponent('https://drive.google.com/thumbnail?id=' + fileId + '&sz=w250')}`;
-            return new Promise((resolve, reject) => {
-                const img = new Image();
-                img.crossOrigin = "anonymous";
-                img.onload = () => {
-                    const canvas = document.createElement("canvas");
-                    canvas.width = img.width; canvas.height = img.height;
-                    const ctx = canvas.getContext("2d");
-                    ctx.drawImage(img, 0, 0);
-                    resolve(canvas.toDataURL("image/jpeg"));
-                };
-                img.onerror = () => reject(new Error("Image Load Failed"));
-                img.src = url;
-            });
         }
 
         async function loadAIAndData() {
@@ -121,41 +95,33 @@
                 const labeledDescriptors = [];
                 
                 for (let student of resData.data) {
-                    if (!student.fileId) continue; 
+                    if (!student.photo || student.photo.length < 50) continue; 
                     try {
-                        // हवा में लाइव इमेज कंवर्ट करना (नो शीट एरर!)
-                        const base64Data = await fetchImageAsBase64(student.fileId);
-                        const img = new Image();
-                        img.src = base64Data;
-                        await new Promise((resolve) => img.onload = resolve);
+                        const img = new Image(); 
+                        img.src = student.photo; 
+                        await new Promise((resolve, reject) => {
+                            img.onload = resolve; img.onerror = reject; 
+                        });
 
                         const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
                         if (detections) {
-                            labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(`${student.id}||${student.name}||${base64Data}`, [detections.descriptor]));
+                            labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(`${student.id}||${student.name}||${student.photo}`, [detections.descriptor]));
                         }
-                    } catch(e) {
-                        console.log("Skipped student ID: ", student.id);
-                    }
+                    } catch(e) {}
                 }
 
                 if(labeledDescriptors.length === 0) { 
                     statusDiv.innerText = "MAP DATA EMPTY!"; return; 
                 }
 
-                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.46);
+                // परफेक्ट बैलेंस्ड सिंपल मैचिंग थ्रेशोल्ड
+                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.45);
                 statusDiv.innerText = "AI SECURITY SECURED";
                 statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
                 subStatus.innerText = "LOOK DIRECTLY INTO CAMERA...";
                 
                 startScanningLoop();
             } catch (err) { statusDiv.innerText = "SYSTEM LOCKED DOWN!"; }
-        }
-
-        function getEAR(eyePoints) {
-            const dist_v1 = Math.hypot(eyePoints[1].x - eyePoints[5].x, eyePoints[1].y - eyePoints[5].y);
-            const dist_v2 = Math.hypot(eyePoints[2].x - eyePoints[4].x, eyePoints[2].y - eyePoints[4].y);
-            const dist_h = Math.hypot(eyePoints[0].x - eyePoints[3].x, eyePoints[0].y - eyePoints[3].y);
-            return (dist_v1 + dist_v2) / (2.0 * dist_h);
         }
 
         function startScanningLoop() {
@@ -172,35 +138,21 @@
                     const resizedDetection = faceapi.resizeResults(detection, displaySize);
                     faceapi.draw.drawDetections(overlay, resizedDetection);
 
-                    const landmarks = detection.landmarks;
-                    const avgEAR = (getEAR(landmarks.getLeftEye()) + getEAR(landmarks.getRightEye())) / 2;
                     const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
                     
+                    // पुराना इंस्टेंट मैच तरीका: बिना ब्लिंक किए सीधा अटेंडेंस ट्रिगर
                     if (bestMatch.label !== 'unknown') {
                         const [id, name, photo] = bestMatch.label.split('||');
-                        laserBar.className = "absolute left-0 w-full scanner-line blink-mode";
-                        subStatus.innerText = `${name}, PLEASE BLINK YOUR EYES NOW...`;
-                        subStatus.className = "text-sm font-black text-yellow-400 mt-5 animate-bounce";
-
-                        if (avgEAR < BLINK_THRESHOLD) {
-                            blinkHistory.push(true);
-                        } else if (blinkHistory.length > 0 && avgEAR > BLINK_THRESHOLD + 0.04) {
-                            blinkHistory = [];
-                            triggerAttendance(id, name, photo);
-                        }
+                        triggerAttendance(id, name, photo);
                     } else {
-                        laserBar.className = "absolute left-0 w-full scanner-line";
                         subStatus.innerText = "ACCESS DENIED: UNKNOWN PERSON";
                         subStatus.className = "text-sm font-black text-red-500 mt-5 tracking-wide";
-                        blinkHistory = [];
                     }
                 } else {
-                    laserBar.className = "absolute left-0 w-full scanner-line";
                     subStatus.innerText = "POSITION FACE INSIDE THE VIEWBOX...";
                     subStatus.className = "text-sm font-bold text-gray-500 mt-5 tracking-widest";
-                    blinkHistory = [];
                 }
-            }, 100); 
+            }, 250); // सुपर स्मूथ कैमरा स्कैनिंग रेट
         }
 
         async function triggerAttendance(studentId, studentName, studentPhoto) {
@@ -210,7 +162,6 @@
                 beepSound.currentTime = 0;
                 beepSound.play();
             } catch(e){}
-            if (navigator.vibrate) navigator.vibrate(300);
 
             document.getElementById('info-placeholder').classList.add('hidden');
             const resultDiv = document.getElementById('info-result');
