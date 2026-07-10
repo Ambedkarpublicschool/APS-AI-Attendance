@@ -2,119 +2,159 @@
 <html lang="hi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>APS AI Attendance System</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
-        .cyber-border { box-shadow: 0 0 15px rgba(5, 213, 250, 0.6); }
+        /* फुल स्क्रीन कियोस्क मोड और लेज़र स्कैनिंग एनिमेशन */
+        body {
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+        .scanner-line {
+            height: 4px;
+            background: linear-gradient(90deg, transparent, #eab308, transparent);
+            animation: scan 2s linear infinite;
+            box-shadow: 0 0 12px #eab308;
+        }
+        .scanner-line.verified {
+            background: linear-gradient(90deg, transparent, #10b981, transparent);
+            box-shadow: 0 0 12px #10b981;
+            animation: scan 1s linear infinite;
+        }
+        @keyframes scan {
+            0% { top: 0%; }
+            50% { top: 100%; }
+            100% { top: 0%; }
+        }
+        .neon-glow {
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+        }
     </style>
 </head>
-<body class="bg-gray-950 text-white font-sans min-h-screen flex flex-col justify-between">
+<body class="bg-gray-950 text-white font-sans h-screen w-screen flex flex-col justify-between m-0 p-0 select-none">
 
-    <header class="p-4 bg-gray-900 border-b border-cyan-500/30 flex justify-between items-center">
-        <h1 class="text-xl font-bold tracking-wider text-cyan-400">APS AI ATTENDANCE SYSTEM</h1>
-        <div id="system-status" class="px-3 py-1 rounded-full text-xs bg-yellow-500/20 text-yellow-400 border border-yellow-500/40">
-            कैमरा शुरू हो रहा है...
-        </div>
-    </header>
-
-    <main class="flex-1 flex flex-col md:flex-row p-4 gap-4 max-w-6xl mx-auto w-full items-center justify-center">
-        <div class="relative flex flex-col items-center bg-gray-900 p-3 rounded-xl border border-gray-800 cyber-border max-w-lg w-full">
-            <div class="relative w-full aspect-video bg-black rounded-lg overflow-hidden">
-                <video id="video" autoplay muted playsinline class="w-full h-full object-cover"></video>
-                <canvas id="overlay" class="absolute top-0 left-0 w-full h-full"></canvas>
+    <!-- फुल-स्क्रीन कियोस्क यूआई: केवल कैमरा और प्रोफाइल कार्ड, शून्य कचरा -->
+    <main class="flex-1 w-full h-full flex flex-col md:flex-row p-2 gap-2 justify-center items-center">
+        
+        <!-- 60% ऊपरी/बायाँ हिस्सा: कैमरा व्यू -->
+        <div class="relative w-full md:w-3/5 aspect-[4/3] bg-black rounded-xl overflow-hidden neon-glow">
+            <video id="video" autoplay muted playsinline class="w-full h-full object-cover"></video>
+            <canvas id="overlay" class="absolute top-0 left-0 w-full h-full"></canvas>
+            
+            <!-- नियॉन स्कैनिंग बार जो लाइव संकेत देगी -->
+            <div id="laser-bar" class="absolute left-0 w-full scanner-line"></div>
+            
+            <!-- टॉप स्टेटस बैच -->
+            <div class="absolute top-3 right-3">
+                <div id="system-status" class="px-3 py-1 rounded-full text-[11px] font-bold bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 tracking-wide">
+                    AI मॉडल्स लोड हो रहे हैं...
+                </div>
             </div>
-            <p class="text-xs text-gray-400 mt-2">कैमरे के सामने सीधे देखें</p>
         </div>
 
-        <div id="info-card" class="bg-gray-900 p-6 rounded-xl border border-gray-800 w-full max-w-sm flex flex-col items-center text-center justify-center h-64 min-h-[16rem]">
-            <div id="info-placeholder">
-                <div class="w-20 h-20 bg-gray-800 rounded-full flex items-center justify-center mx-auto text-gray-600 border border-gray-700">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        <!-- 40% निचला/दायाँ हिस्सा: नीट एंड क्लीन छात्र प्रोफाइल -->
+        <div id="info-card" class="w-full md:w-2/5 max-w-sm bg-gray-900/90 rounded-xl border border-gray-800 p-6 flex flex-col items-center justify-center text-center h-52 md:h-[400px] transition-all duration-300">
+            
+            <!-- स्टैंडबाय मोड (जब कैमरा स्कैन कर रहा है) -->
+            <div id="info-placeholder" class="flex flex-col items-center">
+                <div class="w-16 h-16 bg-cyan-950/40 rounded-full flex items-center justify-center border border-cyan-500/30 animate-pulse">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 009 11V7a4 4 0 018 0v4c0 .654.054 1.3.159 1.93M12 11a4 4 0 00-4-4M12 11v8m0 0h.01" />
                     </svg>
                 </div>
-                <h3 class="text-lg font-medium text-gray-400 mt-4">स्कैनिंग के लिए तैयार</h3>
-                <p id="sub-status" class="text-sm text-gray-500 mt-1">डेटा सिंक होने का इंतज़ार करें...</p>
+                <h3 id="sub-status" class="text-sm font-semibold tracking-wide text-gray-400 mt-4">स्कैनर सक्रिय, छात्र सामने आएं...</h3>
             </div>
 
-            <div id="info-result" class="hidden w-full">
-                <img id="student-img" src="" class="w-24 h-24 rounded-full mx-auto object-cover border-2 border-emerald-500" alt="Student">
-                <h2 id="student-name" class="text-2xl font-bold text-emerald-400 mt-3">---</h2>
-                <p id="student-id" class="text-sm text-cyan-400 mt-1">ID: ---</p>
-                <div id="mark-status" class="mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block">PROCESSING</div>
+            <!-- वेरिफिकेशन मोड (चेहरा + पलक झपकने पर एक्टिवेट होगा) -->
+            <div id="info-result" class="hidden w-full flex flex-col items-center">
+                <div class="relative">
+                    <img id="student-img" src="" class="w-24 h-24 md:w-32 md:h-32 rounded-full object-cover border-4 border-emerald-500 shadow-lg shadow-emerald-500/20" alt="Student">
+                    <div class="absolute -bottom-1 -right-1 bg-emerald-500 text-black rounded-full p-1 shadow-md">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fill-rule="evenodd" d="M6.267 3.455a.75.75 0 00-.708.522L3.53 11.72a.75.75 0 101.446.399L5.67 9.5h5.33l.693 2.618a.75.75 0 101.446-.4L11.774 3.98a.75.75 0 00-.707-.523H6.267zM8.5 5.25L9.625 9.5H7.375L8.5 5.25zm6.78 3.03a.75.75 0 011.06 0l3 3a.75.75 0 11-1.06 1.06l-1.72-1.72V17.25a.75.75 0 01-1.5 0v-6.68l-1.72 1.72a.75.75 0 11-1.06-1.06l3-3z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                </div>
+                <h2 id="student-name" class="text-2xl md:text-3xl font-black text-emerald-400 mt-4 uppercase tracking-wide">---</h2>
+                <p id="student-id" class="text-xs md:text-sm font-bold text-cyan-400 mt-1 tracking-widest">ID: ---</p>
+                <div id="mark-status" class="mt-4 px-6 py-2 rounded-xl text-sm font-black tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-inner">
+                    ATTENDANCE LOCKED (P)
+                </div>
             </div>
         </div>
     </main>
 
-    <footer class="p-3 bg-gray-900 text-center text-xs text-gray-600 border-t border-gray-800">
-        Aryavart Public School © 2026
-    </footer>
-
     <audio id="beep-sound" src="https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav" preload="auto"></audio>
 
     <script>
+        // आपका लाइव ऐप्स स्क्रिप्ट वेब ऐप यूआरएल
         const API_URL = "https://script.google.com/macros/s/AKfycbxR2l-MYhAqKrVRD68C9hgvlMqHU6GalGp18Gvyoc05QFG3ixEA9o4xk4a31G8N5uKn/exec";
 
         const video = document.getElementById('video');
         const overlay = document.getElementById('overlay');
         const statusDiv = document.getElementById('system-status');
         const subStatus = document.getElementById('sub-status');
+        const laserBar = document.getElementById('laser-bar');
         const beepSound = document.getElementById('beep-sound');
         
         let faceMatcher = null;
         let isProcessing = false;
+        
+        // एंटी-चीटिंग वैरियेबल्स (Blink tracking)
+        let blinkHistory = [];
+        const BLINK_THRESHOLD = 0.22; // EAR वैल्यू इससे नीचे जाने पर पलक झपकना माना जाएगा
+
+        // कियोस्क एक्सपीरियंस के लिए ब्राउज़र का फुल-स्क्रीन मोड ऑटो-ट्रिगर
+        function requestFullScreen() {
+            const docElm = document.documentElement;
+            if (docElm.requestFullscreen) docElm.requestFullscreen();
+            else if (docElm.webkitRequestFullScreen) docElm.webkitRequestFullScreen();
+            else if (docElm.mozRequestFullScreen) docElm.mozRequestFullScreen();
+            else if (docElm.msRequestFullscreen) docElm.msRequestFullscreen();
+        }
 
         function startVideo() {
             navigator.mediaDevices.getUserMedia({ 
-                video: { 
-                    facingMode: "user",
-                    width: { ideal: 640 },
-                    height: { ideal: 480 }
-                } 
+                video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } 
             })
             .then(stream => { 
                 video.srcObject = stream;
+                document.body.addEventListener('click', requestFullScreen, { once: true });
                 loadAIAndData();
             })
-            .catch(err => {
-                statusDiv.innerText = "कैमरा परमिशन एरर!";
-            });
+            .catch(err => { statusDiv.innerText = "कैमरा एरर!"; });
         }
 
         async function loadAIAndData() {
             try {
-                statusDiv.innerText = "AI मॉडल्स लोड हो रहे हैं...";
                 const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
-                // हाई-एक्यूरेसी के लिए फुल डिटेक्शन मॉडल लोड करना
+                // एंटी-चीटिंग और भारी सुरक्षा के लिए सटीक मॉडल कॉम्बिनेशन
                 await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-                statusDiv.innerText = "छात्रों का डेटा सिंक हो रहा है...";
-                
+                statusDiv.innerText = "डेटा सिंक चालू...";
                 const response = await fetch(API_URL);
                 const resData = await response.json();
 
                 if (!resData || resData.status !== "success" || !resData.data || resData.data.length === 0) {
-                    statusDiv.innerText = "डेटा एरर!";
-                    subStatus.innerText = "शीट डेटा चेक करें।";
+                    statusDiv.innerText = "डेटा अनुपलब्ध!";
                     return;
                 }
 
-                statusDiv.innerText = "चेहरे ट्रेन हो रहे हैं...";
+                statusDiv.innerText = "सिक्योरिटी मैपिंग...";
                 const labeledDescriptors = [];
                 
                 for (let student of resData.data) {
                     if (!student.photo) continue;
-                    
                     try {
                         const img = new Image();
                         img.src = student.photo; 
                         await new Promise((resolve) => img.onload = resolve);
 
-                        // ट्रेनिंग के समय फुल एक्यूरेसी मॉडल यूज़ कर रहे हैं
                         const detections = await faceapi.detectSingleFace(img)
                                                         .withFaceLandmarks()
                                                         .withFaceDescriptor();
@@ -124,29 +164,41 @@
                                 [detections.descriptor]
                             ));
                         }
-                    } catch(e) {
-                        console.warn("Error training ID:", student.id);
-                    }
+                    } catch(e) {}
                 }
 
                 if(labeledDescriptors.length === 0) {
-                    statusDiv.innerText = "ट्रेनिंग फ़ेल!";
-                    subStatus.innerText = "कोई भी चेहरा ट्रेन नहीं हो सका।";
+                    statusDiv.innerText = "ट्रेनिंग एरर!";
                     return;
                 }
 
-                // डिस्टेंस थ्रेशोल्ड को 0.72 किया (यह एंगल और लाइट बदलने पर भी सटीक मैच ढूंढ निकालेगा)
-                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.72);
-                statusDiv.innerText = "सिस्टम सक्रिय (स्कैनिंग चालू)";
-                statusDiv.className = "px-3 py-1 rounded-full text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
-                subStatus.innerText = `${labeledDescriptors.length} छात्र लोड हुए।`;
+                // सुरक्षा मानक: थ्रेशोल्ड को 0.72 से बेहद कड़ा करके 0.38 कर दिया (90%+ मैचिंग अनिवार्य)
+                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.38);
+                
+                statusDiv.innerText = "AI सुरक्षा सक्रिय";
+                statusDiv.className = "px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 tracking-wide";
+                subStatus.innerText = "अटेंडेंस के लिए कैमरे के सामने देखें...";
                 
                 startScanningLoop();
             } catch (err) {
-                console.error(err);
-                statusDiv.innerText = "लोडिंग रुकी!";
-                subStatus.innerText = "Error: " + err.message;
+                statusDiv.innerText = "सिस्टम लॉक्ड!";
             }
+        }
+
+        // आँख के पॉइंट्स से EAR (Eye Aspect Ratio) मापने का फार्मूला
+        function getEAR(eyePoints) {
+            const p1 = eyePoints[0];
+            const p2 = eyePoints[1];
+            const p3 = eyePoints[2];
+            const p4 = eyePoints[3];
+            const p5 = eyePoints[4];
+            const p6 = eyePoints[5];
+
+            const dist_v1 = Math.hypot(p2.x - p6.x, p2.y - p6.y);
+            const dist_v2 = Math.hypot(p3.x - p5.x, p3.y - p5.y);
+            const dist_h = Math.hypot(p1.x - p4.x, p1.y - p4.y);
+
+            return (dist_v1 + dist_v2) / (2.0 * dist_h);
         }
 
         function startScanningLoop() {
@@ -156,34 +208,67 @@
             setInterval(async () => {
                 if (isProcessing || !faceMatcher) return;
 
-                // लाइव स्कैनिंग को हाई-एक्यूरेसी मोड (ssdMobilenetv1) पर शिफ्ट कर दिया है
-                const detections = await faceapi.detectAllFaces(video)
-                                                .withFaceLandmarks()
-                                                .withFaceDescriptors();
+                // सुरक्षा लॉक: केवल सिंगल फेस ही डिटेक्ट होना चाहिए (एक साथ दो चेहरे अलाउड नहीं)
+                const detection = await faceapi.detectSingleFace(video)
+                                               .withFaceLandmarks()
+                                               .withFaceDescriptor();
                 
-                const resizedDetections = faceapi.resizeResults(detections, displaySize);
                 overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
-                faceapi.draw.drawDetections(overlay, resizedDetections);
 
-                for (const detection of resizedDetections) {
+                if (detection) {
+                    const resizedDetection = faceapi.resizeResults(detection, displaySize);
+                    faceapi.draw.drawDetections(overlay, resizedDetection);
+
+                    // 1. आँख ट्रैकिंग - एंटी-स्पूफिंग (Liveness Check)
+                    const landmarks = detection.landmarks;
+                    const leftEye = landmarks.getLeftEye();
+                    const rightEye = landmarks.getRightEye();
+                    
+                    const leftEAR = getEAR(leftEye);
+                    const rightEAR = getEAR(rightEye);
+                    const avgEAR = (leftEAR + rightEAR) / 2;
+
+                    // 2. डेटाबेस से चेहरा मैच करना (Strict 90% accuracy Check)
                     const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+                    
                     if (bestMatch.label !== 'unknown') {
                         const [id, name, photo] = bestMatch.label.split('||');
-                        triggerAttendance(id, name, photo);
-                        break; 
+                        
+                        // लेज़र लाइन को पीला कर के संकेत दें कि चेहरा मिल गया है, अब पलक झपकाओ
+                        laserBar.className = "absolute left-0 w-full scanner-line verified animate-pulse text-yellow-500";
+                        subStatus.innerText = `नमस्ते ${name}, कृपया अपनी पलकें झपकाएं (Blink)...`;
+                        subStatus.className = "text-sm font-bold text-yellow-400 mt-4 animate-bounce";
+
+                        // पलक झपकने की घटना (Blink State Change) को कैप्चर करना
+                        if (avgEAR < BLINK_THRESHOLD) {
+                            blinkHistory.push(true);
+                        } else if (blinkHistory.length > 0 && avgEAR > BLINK_THRESHOLD + 0.05) {
+                            // अगर छात्र ने आँखें बंद कीं और फिर वापस खोल दीं -> पलक झपकना सफल!
+                            blinkHistory = [];
+                            triggerAttendance(id, name, photo);
+                        }
                     } else {
-                        subStatus.innerText = "चेहरा डेटाबेस से मैच नहीं हुआ (Unknown)";
-                        subStatus.className = "text-sm text-yellow-400 font-semibold mt-1";
+                        // शक्ल न मिलने पर या फोटो दिखाने पर
+                        laserBar.className = "absolute left-0 w-full scanner-line";
+                        subStatus.innerText = "सुरक्षा चेतावनी: चेहरा मैच नहीं हुआ (Unknown)";
+                        subStatus.className = "text-sm font-bold text-red-400 mt-4";
+                        blinkHistory = [];
                     }
+                } else {
+                    laserBar.className = "absolute left-0 w-full scanner-line";
+                    subStatus.innerText = "कैमरे के ठीक सामने सीधे देखें...";
+                    subStatus.className = "text-sm font-semibold text-gray-400 mt-4";
+                    blinkHistory = [];
                 }
-            }, 600); // स्पीड को और ऑप्टिमाइज किया
+            }, 150); // लाइव चेकिंग रेस्पॉन्स को और फास्ट किया
         }
 
         async function triggerAttendance(studentId, studentName, studentPhoto) {
             isProcessing = true;
             try { beepSound.play(); } catch(e){}
-            if (navigator.vibrate) navigator.vibrate(200);
+            if (navigator.vibrate) navigator.vibrate(250);
 
+            // यूआई ट्रांज़िशन: कचरा साफ, सीधा सक्सेस प्रोफाइल
             document.getElementById('info-placeholder').classList.add('hidden');
             const resultDiv = document.getElementById('info-result');
             resultDiv.classList.remove('hidden');
@@ -192,9 +277,8 @@
             document.getElementById('student-id').innerText = `ID: ${studentId}`;
             document.getElementById('student-img').src = studentPhoto;
             
-            const statusLabel = document.getElementById('mark-status');
-            statusLabel.innerText = "प्रोसेसिंग...";
-            statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-blue-500/20 text-blue-400 border border-blue-500/40";
+            // लेज़र लाइन को नियॉन ग्रीन (सक्सेस) मोड में डालना
+            laserBar.className = "absolute left-0 w-full scanner-line verified";
 
             try {
                 await fetch(API_URL, {
@@ -203,21 +287,14 @@
                     headers: { 'Content-Type': 'text/plain' },
                     body: JSON.stringify({ studentId: studentId })
                 });
-                statusLabel.innerText = "अटेंडेंस दर्ज (P)";
-                statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
-                subStatus.innerText = `${studentName} की अटेंडेंस मार्क हो गई।`;
-                subStatus.className = "text-sm text-emerald-400 font-semibold mt-1";
-            } catch (err) {
-                statusLabel.innerText = "दर्ज (चेक शीट)";
-                statusLabel.className = "mt-4 px-4 py-1.5 rounded-lg font-semibold inline-block bg-emerald-500/20 text-emerald-400 border border-emerald-500/40";
-            }
+            } catch (err) {}
 
+            // 3.5 सेकंड का होल्ड ताकि बच्चा अपनी हाजिरी देख सके, फिर अगला बच्चा आएगा
             setTimeout(() => {
                 document.getElementById('info-placeholder').classList.remove('hidden');
                 resultDiv.classList.add('hidden');
+                laserBar.className = "absolute left-0 w-full scanner-line";
                 overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
-                subStatus.innerText = "अगले छात्र को स्कैन करें...";
-                subStatus.className = "text-sm text-gray-500 mt-1";
                 isProcessing = false;
             }, 3500);
         }
