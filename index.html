@@ -83,6 +83,24 @@
             .catch(err => { statusDiv.innerText = "CAMERA ERROR!"; });
         }
 
+        // इमेज को बिना किसी CORS ब्लॉक के लाइव फेच करने का कड़क इन-मेमोरी इंजन
+        async function fetchImageAsBase64(fileId) {
+            const url = `https://images1-focus-opensocial.googleusercontent.com/gadgets/proxy?container=focus&refresh=2592000&url=${encodeURIComponent('https://drive.google.com/thumbnail?id=' + fileId + '&sz=w250')}`;
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = "anonymous";
+                img.onload = () => {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = img.width; canvas.height = img.height;
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0);
+                    resolve(canvas.toDataURL("image/jpeg"));
+                };
+                img.onerror = () => reject(new Error("Image Load Failed"));
+                img.src = url;
+            });
+        }
+
         async function loadAIAndData() {
             try {
                 const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
@@ -103,27 +121,28 @@
                 const labeledDescriptors = [];
                 
                 for (let student of resData.data) {
-                    if (!student.photo) continue; 
+                    if (!student.fileId) continue; 
                     try {
-                        const img = new Image(); 
-                        img.crossOrigin = "anonymous";
-                        img.src = student.photo; 
-                        await new Promise((resolve, reject) => {
-                            img.onload = resolve; img.onerror = reject; 
-                        });
+                        // हवा में लाइव इमेज कंवर्ट करना (नो शीट एरर!)
+                        const base64Data = await fetchImageAsBase64(student.fileId);
+                        const img = new Image();
+                        img.src = base64Data;
+                        await new Promise((resolve) => img.onload = resolve);
 
                         const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
                         if (detections) {
-                            labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(`${student.id}||${student.name}||${student.photo}`, [detections.descriptor]));
+                            labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(`${student.id}||${student.name}||${base64Data}`, [detections.descriptor]));
                         }
-                    } catch(e) {}
+                    } catch(e) {
+                        console.log("Skipped student ID: ", student.id);
+                    }
                 }
 
                 if(labeledDescriptors.length === 0) { 
                     statusDiv.innerText = "MAP DATA EMPTY!"; return; 
                 }
 
-                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.45);
+                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.46);
                 statusDiv.innerText = "AI SECURITY SECURED";
                 statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
                 subStatus.innerText = "LOOK DIRECTLY INTO CAMERA...";
