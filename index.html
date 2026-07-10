@@ -42,15 +42,10 @@
             <div id="info-result" class="hidden w-full flex flex-col items-center">
                 <div class="relative">
                     <img id="student-img" src="" class="w-28 h-28 md:w-36 md:h-36 rounded-full object-cover border-4 border-emerald-500 shadow-xl shadow-emerald-500/30" alt="Student">
-                    <div class="absolute -bottom-1 -right-1 bg-emerald-500 text-black rounded-full p-1.5 shadow-md">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                        </svg>
-                    </div>
                 </div>
                 <h2 id="student-name" class="text-3xl md:text-4xl font-black text-emerald-400 mt-5 uppercase tracking-wide">---</h2>
                 <p id="student-id" class="text-xs md:text-sm font-black text-cyan-400 mt-1 tracking-widest bg-cyan-950 px-3 py-1 rounded-md border border-cyan-500/20">ID: ---</p>
-                <div class="mt-5 px-8 py-2.5 rounded-xl text-sm font-black tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 uppercase shadow-md">
+                <div class="mt-5 px-8 py-2.5 rounded-xl text-sm font-black tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 uppercase">
                     HAZIRI LOCKED (P)
                 </div>
             </div>
@@ -76,7 +71,6 @@
 
         function requestFullScreen() {
             if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
-            else if (document.documentElement.webkitRequestFullScreen) document.documentElement.webkitRequestFullScreen();
         }
 
         function startVideo() {
@@ -97,7 +91,6 @@
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
                 statusDiv.innerText = "ERP LIVE SYNCING...";
-                
                 const forceRefreshUrl = `${BASE_API_URL}?_=${Date.now()}`;
                 const response = await fetch(forceRefreshUrl);
                 const resData = await response.json();
@@ -109,42 +102,34 @@
                 statusDiv.innerText = "MAPPING SECURITY MATRIX...";
                 const labeledDescriptors = [];
                 
-                // --- बुलेटप्रूफ लूप फिक्स: खाली या टूटे हुए बेस64 को स्किप करेगा ---
                 for (let student of resData.data) {
                     if (!student.photo || student.photo.length < 50) continue; 
                     try {
                         const img = new Image(); 
                         img.src = student.photo; 
                         await new Promise((resolve, reject) => {
-                            img.onload = resolve;
-                            img.onerror = reject; 
+                            img.onload = resolve; img.onerror = reject; 
                         });
 
                         const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
                         if (detections) {
                             labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(`${student.id}||${student.name}||${student.photo}`, [detections.descriptor]));
                         }
-                    } catch(e) {
-                        console.log("Skipped bad image entry for student ID:", student.id);
-                    }
+                    } catch(e) {}
                 }
 
                 if(labeledDescriptors.length === 0) { 
-                    statusDiv.innerText = "MAP DATA EMPTY!"; 
-                    subStatus.innerText = "त्रुटि: कोई वैध फोटो डेटा नहीं मिला!";
-                    return; 
+                    statusDiv.innerText = "MAP DATA EMPTY!"; return; 
                 }
 
-                // कड़क सुरक्षा: 90% मैचिंग (0.38 Matrix)
-                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.38);
+                // HD फोटो के हिसाब से थ्रेशोल्ड को 0.50 (परफेक्ट बैलेंस्ड) पर सेट किया
+                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.50);
                 statusDiv.innerText = "AI SECURITY SECURED";
                 statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
                 subStatus.innerText = "LOOK DIRECTLY INTO CAMERA...";
                 
                 startScanningLoop();
-            } catch (err) { 
-                statusDiv.innerText = "SYSTEM LOCKED DOWN!"; 
-            }
+            } catch (err) { statusDiv.innerText = "SYSTEM LOCKED DOWN!"; }
         }
 
         function getEAR(eyePoints) {
@@ -174,8 +159,7 @@
                     
                     if (bestMatch.label !== 'unknown') {
                         const [id, name, photo] = bestMatch.label.split('||');
-                        
-                        laserBar.className = "laser-bar absolute left-0 w-full scanner-line blink-mode";
+                        laserBar.className = "absolute left-0 w-full scanner-line blink-mode";
                         subStatus.innerText = `${name}, PLEASE BLINK YOUR EYES NOW...`;
                         subStatus.className = "text-sm font-black text-yellow-400 mt-5 animate-bounce";
 
@@ -186,13 +170,13 @@
                             triggerAttendance(id, name, photo);
                         }
                     } else {
-                        laserBar.className = "laser-bar absolute left-0 w-full scanner-line";
+                        laserBar.className = "absolute left-0 w-full scanner-line";
                         subStatus.innerText = "ACCESS DENIED: UNKNOWN PERSON";
                         subStatus.className = "text-sm font-black text-red-500 mt-5 tracking-wide";
                         blinkHistory = [];
                     }
                 } else {
-                    laserBar.className = "laser-bar absolute left-0 w-full scanner-line";
+                    laserBar.className = "absolute left-0 w-full scanner-line";
                     subStatus.innerText = "POSITION FACE INSIDE THE VIEWBOX...";
                     subStatus.className = "text-sm font-bold text-gray-500 mt-5 tracking-widest";
                     blinkHistory = [];
@@ -203,15 +187,13 @@
         async function triggerAttendance(studentId, studentName, studentPhoto) {
             isProcessing = true;
             
-            // बिना किसी नेटवर्क देरी के तुरंत बीप अलार्म बजाएं
+            // तुरंत बीप अलार्म बिना देरी के बजाना
             try {
                 beepSound.currentTime = 0;
                 beepSound.play();
-            } catch(e){ console.log("Audio skipped"); }
-            
+            } catch(e){}
             if (navigator.vibrate) navigator.vibrate(300);
 
-            // यूआई ट्रांजिशन
             document.getElementById('info-placeholder').classList.add('hidden');
             const resultDiv = document.getElementById('info-result');
             resultDiv.classList.remove('hidden');
@@ -220,22 +202,19 @@
             document.getElementById('student-id').innerText = `ID: ${studentId}`;
             document.getElementById('student-img').src = studentPhoto;
             
-            laserBar.className = "laser-bar absolute left-0 w-full scanner-line verified";
+            laserBar.className = "absolute left-0 w-full scanner-line verified";
 
-            // बुलेटप्रूफ पेलोड डिलीवरी
+            // [SUCCESS LOCK FIX] - पेलोड को सिंक करके सीधा P मार्क ट्रिगर करना
             try {
                 const sheetTriggerUrl = `${BASE_API_URL}?studentId=${encodeURIComponent(studentId)}`;
-                // Redirects को फॉलो करने के लिए mode को डिफ़ॉल्ट रखा
-                await fetch(sheetTriggerUrl, { method: 'POST' });
-            } catch (err) { 
-                console.log("Logged via background query.");
-            }
+                await fetch(sheetTriggerUrl, { method: 'POST', mode: 'no-cors' });
+            } catch (err) {}
 
-            // ठीक 3.5 सेकंड बाद स्क्रीन पूरी तरह रीसेट होकर अगले छात्र के लिए तैयार हो जाएगी
+            // ठीक 3.5 सेकंड बाद अगला छात्र आ सके इसके लिए रीसेट चक्र
             setTimeout(() => {
                 document.getElementById('info-placeholder').classList.remove('hidden');
                 resultDiv.classList.add('hidden');
-                laserBar.className = "laser-bar absolute left-0 w-full scanner-line";
+                laserBar.className = "absolute left-0 w-full scanner-line";
                 overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
                 isProcessing = false;
             }, 3500);
