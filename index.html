@@ -114,7 +114,6 @@
                     statusDiv.innerText = "MAP DATA EMPTY!"; return; 
                 }
 
-                // परफेक्ट बैलेंस्ड सिंपल मैचिंग थ्रेशोल्ड
                 faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.45);
                 statusDiv.innerText = "AI SECURITY SECURED";
                 statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
@@ -140,7 +139,6 @@
 
                     const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
                     
-                    // पुराना इंस्टेंट मैच तरीका: बिना ब्लिंक किए सीधा अटेंडेंस ट्रिगर
                     if (bestMatch.label !== 'unknown') {
                         const [id, name, photo] = bestMatch.label.split('||');
                         triggerAttendance(id, name, photo);
@@ -152,7 +150,7 @@
                     subStatus.innerText = "POSITION FACE INSIDE THE VIEWBOX...";
                     subStatus.className = "text-sm font-bold text-gray-500 mt-5 tracking-widest";
                 }
-            }, 250); // सुपर स्मूथ कैमरा स्कैनिंग रेट
+            }, 250); 
         }
 
         async function triggerAttendance(studentId, studentName, studentPhoto) {
