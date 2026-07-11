@@ -3,105 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ambedkar Public School AI Kiosk</title>
+    <title>APS AI Kiosk Attendance</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
-        body { 
-            overflow: hidden; 
-            touch-action: manipulation; 
-            background-image: url('https://i.postimg.cc/NM3tbZ1X/Chat-GPT-Image-Jun-25-2026-03-55-59-PM.png');
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            height: 100vh;
-            width: 100vw;
-        }
-        
-        /* जबरदस्ती मोबाइल को हॉरिजॉन्टल मोड में घुमाने का जादू */
-        @media (orientation: portrait) {
-            #main-container {
-                transform: rotate(90deg);
-                transform-origin: center;
-                width: 100vh;
-                height: 100vw;
-            }
-            #rotation-notice {
-                display: flex !important;
-            }
-        }
-
-        /* गोल कैमरे के ऊपर घूमने वाली नियॉन लेजर लाइट */
-        .neon-scan-ring {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            border: 4px solid rgba(6, 182, 212, 0.4);
-            border-radius: 50%;
-            box-shadow: 0 0 20px rgba(6, 182, 212, 0.6);
-        }
-        
-        .neon-scan-ring.verified {
-            border-color: #10b981 !important;
-            box-shadow: 0 0 25px #10b981 !important;
-        }
-
-        /* प्रीमियम पारदर्शी शीशा लुक (Glassmorphism UI) */
-        .glass-panel {
-            background: rgba(15, 23, 42, 0.45);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
+        body { overflow: hidden; touch-action: manipulation; background-color: #030712; }
+        .scanner-container { position: relative; box-shadow: 0 0 30px rgba(6, 182, 212, 0.25); border: 2px solid rgba(6, 182, 212, 0.4); }
+        .scanner-line { position: absolute; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, transparent, #06b6d4, transparent); animation: scan 2.5s linear infinite; box-shadow: 0 0 15px #06b6d4; }
+        .scanner-line.verified { background: linear-gradient(90deg, transparent, #10b981, transparent); box-shadow: 0 0 15px #10b981; animation: none; top: 50%; }
+        @keyframes scan { 0% { top: 0%; } 50% { top: 100%; } 100% { top: 0%; } }
     </style>
 </head>
-<body class="text-white font-sans m-0 p-0 select-none flex justify-center items-center">
+<body class="text-white font-sans h-screen w-screen flex flex-col m-0 p-0 select-none justify-between">
 
-    <div id="rotation-notice" class="hidden fixed inset-0 bg-slate-950 z-50 flex-col items-center justify-center text-center p-5">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-cyan-400 animate-bounce mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h3m-3 0H9m12 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <h2 class="text-2xl font-black uppercase tracking-wider text-white">ROTATE YOUR DEVICE</h2>
-        <p class="text-gray-400 text-sm mt-2">बेहतर एआई फेस स्कैनिंग के लिए मोबाइल को आड़ा (Horizontal) करें</p>
-    </div>
-
-    <main id="main-container" class="w-full h-full flex flex-row p-4 gap-4 justify-between items-center bg-black/20">
-        
-        <div class="w-[55%] aspect-square max-h-[90vh] flex items-center justify-center relative">
-            <div class="relative w-[85%] h-[85%] rounded-full overflow-hidden border-4 border-cyan-500/30 shadow-2xl bg-slate-950/50">
-                <video id="video" autoplay muted playsinline class="w-full h-full object-cover rounded-full scale-x-[-1]"></video>
-                <canvas id="overlay" class="absolute top-0 left-0 w-full h-full rounded-full scale-x-[-1]"></canvas>
-                <div id="laser-ring" class="neon-scan-ring"></div>
-            </div>
-            <div class="absolute top-4 left-6">
-                <div id="system-status" class="px-4 py-1.5 rounded-full text-[10px] font-black bg-slate-900/80 text-cyan-400 border border-cyan-500/30 tracking-wider uppercase">
-                    AI INITIALIZING...
+    <main class="flex-1 w-full h-full flex flex-col md:flex-row p-3 gap-3 justify-center items-center">
+        <!-- कैमरा बॉक्स व्यू (हाइट और चौड़ाई को परफेक्ट बड़ा एडजस्ट कर दिया गया है) -->
+        <div class="scanner-container relative w-full md:w-3/5 h-[80vh] md:h-[90vh] bg-black rounded-2xl overflow-hidden">
+            <video id="video" autoplay muted playsinline class="w-full h-full object-cover scale-x-[-1]"></video>
+            <canvas id="overlay" class="absolute top-0 left-0 w-full h-full scale-x-[-1]"></canvas>
+            <div id="laser-bar" class="scanner-line"></div>
+            <div class="absolute top-4 left-4">
+                <div id="system-status" class="px-4 py-1.5 rounded-full text-xs font-black bg-cyan-950/70 text-cyan-400 border border-cyan-500/30 tracking-wider uppercase animate-pulse">
+                    AI MODELS LOADING...
                 </div>
             </div>
         </div>
 
-        <div id="info-card" class="w-[42%] h-[85vh] glass-panel rounded-3xl p-6 flex flex-col items-center justify-center text-center shadow-2xl">
+        <!-- 40% छात्र प्रोफाइल विजेट (यह कैमरा बॉक्स के साथ मैच रहेगा) -->
+        <div id="info-card" class="w-full md:w-2/5 max-w-md bg-gray-900/60 backdrop-blur-md rounded-2xl border border-gray-800 p-6 flex flex-col items-center justify-center text-center h-48 md:h-[90vh]">
+            <!-- स्टैंडबाय मोड UI -->
             <div id="info-placeholder" class="flex flex-col items-center">
-                <div class="w-20 h-20 bg-cyan-500/10 rounded-full flex items-center justify-center border border-cyan-400/30 shadow-inner">
+                <div class="w-20 h-20 bg-cyan-950/30 rounded-full flex items-center justify-center border border-cyan-500/20 shadow-lg">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 009 11V7a4 4 0 018 0v4c0 .654.054 1.3.159 1.93M12 11a4 4 0 00-4-4M12 11v8m0 0h.01" />
                     </svg>
                 </div>
-                <h3 id="sub-status" class="text-xs font-black tracking-widest text-cyan-300 mt-5 uppercase bg-cyan-950/50 px-4 py-1.5 rounded-full border border-cyan-500/20">LOOK INTO CAMERA...</h3>
+                <h3 id="sub-status" class="text-sm font-black tracking-widest text-gray-400 mt-5 uppercase">SCANNER READY. STEP FORWARD...</h3>
             </div>
 
-            <div id="info-result" class="hidden w-full flex flex-col items-center animate-fade-in">
+            <!-- हाजिरी कन्फर्मेशन सक्सेस स्क्रीन -->
+            <div id="info-result" class="hidden w-full flex flex-col items-center">
                 <div class="relative">
-                    <img id="student-img" src="" class="w-28 h-28 rounded-full object-cover border-4 border-emerald-500 shadow-xl shadow-emerald-500/30" alt="Student">
+                    <img id="student-img" src="" class="w-28 h-28 md:w-36 md:h-36 rounded-full object-cover border-4 border-emerald-500 shadow-xl shadow-emerald-500/30" alt="Student">
                 </div>
-                <h2 id="student-name" class="text-2xl font-black text-emerald-400 mt-4 uppercase tracking-wide drop-shadow-md">---</h2>
-                <p id="student-id" class="text-[11px] font-black text-cyan-400 mt-1 tracking-widest bg-cyan-950/80 px-3 py-1 rounded-md border border-cyan-500/30">ID: ---</p>
-                <div class="mt-4 px-8 py-2 rounded-full text-xs font-black tracking-widest bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20 uppercase">
+                <h2 id="student-name" class="text-3xl md:text-4xl font-black text-emerald-400 mt-5 uppercase tracking-wide">---</h2>
+                <p id="student-id" class="text-xs md:text-sm font-black text-cyan-400 mt-1 tracking-widest bg-cyan-950 px-3 py-1 rounded-md border border-cyan-500/20">ID: ---</p>
+                <div class="mt-5 px-8 py-2.5 rounded-xl text-sm font-black tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 uppercase">
                     HAZIRI LOCKED (P)
                 </div>
             </div>
         </div>
     </main>
 
+    <!-- डिजिटल अलार्म कड़क बीप साउंड -->
     <audio id="beep-sound" src="https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg" preload="auto"></audio>
 
     <script>
@@ -111,16 +65,35 @@
         const overlay = document.getElementById('overlay');
         const statusDiv = document.getElementById('system-status');
         const subStatus = document.getElementById('sub-status');
-        const laserRing = document.getElementById('laser-ring');
+        const laserBar = document.getElementById('laser-bar');
         const beepSound = document.getElementById('beep-sound');
         
         let faceMatcher = null;
         let isProcessing = false;
 
+        // [CRITICAL FIX] स्क्रीन पर पहली बार कहीं भी टच करते ही 100% फुल स्क्रीन एक्टिवेट करने का फंक्शन
+        function triggerFullScreen() {
+            if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen();
+            } else if (document.documentElement.mozRequestFullScreen) { // Firefox
+                document.documentElement.mozRequestFullScreen();
+            } else if (document.documentElement.webkitRequestFullscreen) { // Chrome, Safari
+                document.documentElement.webkitRequestFullscreen();
+            } else if (document.documentElement.msRequestFullscreen) { // IE/Edge
+                document.documentElement.msRequestFullscreen();
+            }
+            // एक बार फुलस्क्रीन होने के बाद इस लिसनर को हटा देंगे ताकि बार-बार डिस्टर्ब न हो
+            document.removeEventListener('click', triggerFullScreen);
+            document.removeEventListener('touchstart', triggerFullScreen);
+        }
+
         function startVideo() {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640, height: 480 } })
             .then(stream => { 
                 video.srcObject = stream;
+                // फ़र्स्ट टच लिसनर एक्टिवेट
+                document.addEventListener('click', triggerFullScreen, { once: true });
+                document.addEventListener('touchstart', triggerFullScreen, { once: true });
                 loadAIAndData();
             })
             .catch(err => { statusDiv.innerText = "CAMERA ERROR!"; });
@@ -139,10 +112,10 @@
                 const resData = await response.json();
 
                 if (!resData || resData.status !== "success" || !resData.data) {
-                    statusDiv.innerText = "DATA ERROR!"; return;
+                    statusDiv.innerText = "DATA STORAGE ERROR!"; return;
                 }
 
-                statusDiv.innerText = "SECURITY MATRIX MAPPING...";
+                statusDiv.innerText = "MAPPING SECURITY MATRIX...";
                 const labeledDescriptors = [];
                 
                 for (let student of resData.data) {
@@ -165,14 +138,14 @@
                     statusDiv.innerText = "MAP DATA EMPTY!"; return; 
                 }
 
-                // [HIGH ACCURACY MATCH LOCK] - 0.38 थ्रेशोल्ड
+                // हाई एक्यूरेसी थ्रेशोल्ड 0.38
                 faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.38);
-                statusDiv.innerText = "AI SECURITY ONLINE";
-                statusDiv.className = "px-4 py-1.5 rounded-full text-[10px] font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
+                statusDiv.innerText = "AI SECURITY SECURED";
+                statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
                 subStatus.innerText = "LOOK DIRECTLY INTO CAMERA...";
                 
                 startScanningLoop();
-            } catch (err) { statusDiv.innerText = "SYSTEM LOCKDOWN!"; }
+            } catch (err) { statusDiv.innerText = "SYSTEM LOCKED DOWN!"; }
         }
 
         function startScanningLoop() {
@@ -195,12 +168,12 @@
                         const [id, name, photo] = bestMatch.label.split('||');
                         triggerAttendance(id, name, photo);
                     } else {
-                        subStatus.innerText = "ACCESS DENIED: UNKNOWN";
-                        subStatus.className = "text-xs font-black text-red-500 mt-5 tracking-wide uppercase";
+                        subStatus.innerText = "ACCESS DENIED: UNKNOWN PERSON";
+                        subStatus.className = "text-sm font-black text-red-500 mt-5 tracking-wide";
                     }
                 } else {
-                    subStatus.innerText = "SCANNER READY. STEP FORWARD...";
-                    subStatus.className = "text-xs font-black text-cyan-400 mt-5 tracking-wide uppercase";
+                    subStatus.innerText = "POSITION FACE INSIDE THE VIEWBOX...";
+                    subStatus.className = "text-sm font-bold text-gray-500 mt-5 tracking-widest";
                 }
             }, 250); 
         }
@@ -221,7 +194,7 @@
             document.getElementById('student-id').innerText = `ID: ${studentId}`;
             document.getElementById('student-img').src = studentPhoto;
             
-            laserRing.className = "neon-scan-ring verified";
+            laserBar.className = "absolute left-0 w-full scanner-line verified";
 
             try {
                 const sheetTriggerUrl = `${BASE_API_URL}?studentId=${encodeURIComponent(studentId)}`;
@@ -231,7 +204,7 @@
             setTimeout(() => {
                 document.getElementById('info-placeholder').classList.remove('hidden');
                 resultDiv.classList.add('hidden');
-                laserRing.className = "neon-scan-ring";
+                laserBar.className = "absolute left-0 w-full scanner-line";
                 overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
                 isProcessing = false;
             }, 3500);
