@@ -187,12 +187,12 @@
             
             // [300MS EXTRA LOUD BEEP LOCK] बिजली जैसी तेज़ कड़क बीप आवाज़ सिर्फ 300 मिलीसेकंड के लिए बजेगी
             try {
-                beepSound.volume = 1.0; 
+                beepSound.volume = 100.0; 
                 beepSound.currentTime = 0;
                 beepSound.play();
                 setTimeout(() => { 
                     beepSound.pause(); 
-                }, 300); 
+                }, 50); 
             } catch(e){}
 
             // कैमरा मोड तुरंत छुपाएं और उसी सिंगल बॉक्स में छात्र का स्टेटस लोड करें
