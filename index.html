@@ -164,28 +164,36 @@
             } catch (err) { statusDiv.innerText = "SYSTEM LOCKED DOWN!"; }
         }
 
-        function startScanningLoop() {
-            const displaySize = { width: video.clientWidth, height: video.clientHeight };
-            faceapi.matchDimensions(overlay, displaySize);
+function startScanningLoop() {
+    const displaySize = { width: video.clientWidth, height: video.clientHeight };
+    faceapi.matchDimensions(overlay, displaySize);
 
-            setInterval(async () => {
-                if (isProcessing || !faceMatcher) return;
+    setInterval(async () => {
+        if (isProcessing || !faceMatcher) return;
 
-                const detection = await faceapi.detectSingleFace(video).withFaceLandmarks().withFaceDescriptor();
-                overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
+        // [UPGRADE] एक साथ कैमरे में दिखने वाले सभी चेहरों को ढूंढना
+        const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
+        overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
 
-                if (detection) {
-                    const resizedDetection = faceapi.resizeResults(detection, displaySize);
-                    faceapi.draw.drawDetections(overlay, resizedDetection);
+        if (detections && detections.length > 0) {
+            const resizedDetections = faceapi.resizeResults(detections, displaySize);
+            faceapi.draw.drawDetections(overlay, resizedDetections);
 
-                    const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
-                    if (bestMatch.label !== 'unknown') {
-                        const [id, name, photo] = bestMatch.label.split('||');
-                        triggerAttendance(id, name, photo);
-                    }
-                }
-            }, 250); 
+            // [PRIORITY LOGIC] चेहरों को उनके साइज (चौड़ाई) के हिसाब से सॉर्ट करना जो सबसे पास होगा, उसका चेहरा सबसे बड़ा (box.width) होगा
+            let targetDetection = detections[0];
+            if (detections.length > 1) {
+                detections.sort((a, b) => b.detection.box.width - a.detection.box.width);
+                targetDetection = detections[0]; // सबसे पास वाला बच्चा सेलेक्ट हुआ
+            }
+
+            const bestMatch = faceMatcher.findBestMatch(targetDetection.descriptor);
+            if (bestMatch.label !== 'unknown') {
+                const [id, name, photo] = bestMatch.label.split('||');
+                triggerAttendance(id, name, photo);
+            }
         }
+    }, 250); 
+}
 
         async function triggerAttendance(studentId, studentName, studentPhoto) {
             isProcessing = true;
