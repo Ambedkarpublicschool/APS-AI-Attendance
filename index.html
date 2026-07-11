@@ -17,8 +17,7 @@
 <body class="text-white font-sans h-screen w-screen flex flex-col m-0 p-0 select-none justify-between">
 
     <main class="flex-1 w-full h-full flex flex-col md:flex-row p-3 gap-3 justify-center items-center">
-        <!-- कैमरा बॉक्स व्यू (हाइट और चौड़ाई को परफेक्ट बड़ा एडजस्ट कर दिया गया है) -->
-        <div class="scanner-container relative w-full md:w-3/5 h-[80vh] md:h-[90vh] bg-black rounded-2xl overflow-hidden">
+        <div class="scanner-container relative w-full md:w-3/5 aspect-[4/3] bg-black rounded-2xl overflow-hidden">
             <video id="video" autoplay muted playsinline class="w-full h-full object-cover scale-x-[-1]"></video>
             <canvas id="overlay" class="absolute top-0 left-0 w-full h-full scale-x-[-1]"></canvas>
             <div id="laser-bar" class="scanner-line"></div>
@@ -29,9 +28,7 @@
             </div>
         </div>
 
-        <!-- 40% छात्र प्रोफाइल विजेट (यह कैमरा बॉक्स के साथ मैच रहेगा) -->
-        <div id="info-card" class="w-full md:w-2/5 max-w-md bg-gray-900/60 backdrop-blur-md rounded-2xl border border-gray-800 p-6 flex flex-col items-center justify-center text-center h-48 md:h-[90vh]">
-            <!-- स्टैंडबाय मोड UI -->
+        <div id="info-card" class="w-full md:w-2/5 max-w-md bg-gray-900/60 backdrop-blur-md rounded-2xl border border-gray-800 p-6 flex flex-col items-center justify-center text-center h-48 md:h-[450px]">
             <div id="info-placeholder" class="flex flex-col items-center">
                 <div class="w-20 h-20 bg-cyan-950/30 rounded-full flex items-center justify-center border border-cyan-500/20 shadow-lg">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -41,7 +38,6 @@
                 <h3 id="sub-status" class="text-sm font-black tracking-widest text-gray-400 mt-5 uppercase">SCANNER READY. STEP FORWARD...</h3>
             </div>
 
-            <!-- हाजिरी कन्फर्मेशन सक्सेस स्क्रीन -->
             <div id="info-result" class="hidden w-full flex flex-col items-center">
                 <div class="relative">
                     <img id="student-img" src="" class="w-28 h-28 md:w-36 md:h-36 rounded-full object-cover border-4 border-emerald-500 shadow-xl shadow-emerald-500/30" alt="Student">
@@ -55,8 +51,7 @@
         </div>
     </main>
 
-    <!-- डिजिटल अलार्म कड़क बीप साउंड -->
-    <audio id="beep-sound" src="https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg" preload="auto"></audio>
+    <audio id="beep-sound" src="https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg" preload="auto"></auto>
 
     <script>
         const BASE_API_URL = "https://script.google.com/macros/s/AKfycbxR2l-MYhAqKrVRD68C9hgvlMqHU6GalGp18Gvyoc05QFG3ixEA9o4xk4a31G8N5uKn/exec";
@@ -71,29 +66,35 @@
         let faceMatcher = null;
         let isProcessing = false;
 
-        // [CRITICAL FIX] स्क्रीन पर पहली बार कहीं भी टच करते ही 100% फुल स्क्रीन एक्टिवेट करने का फंक्शन
-        function triggerFullScreen() {
-            if (document.documentElement.requestFullscreen) {
-                document.documentElement.requestFullscreen();
-            } else if (document.documentElement.mozRequestFullScreen) { // Firefox
-                document.documentElement.mozRequestFullScreen();
-            } else if (document.documentElement.webkitRequestFullscreen) { // Chrome, Safari
-                document.documentElement.webkitRequestFullscreen();
-            } else if (document.documentElement.msRequestFullscreen) { // IE/Edge
-                document.documentElement.msRequestFullscreen();
+        // [100% BULLETPROOF FULLSCREEN LOCK]
+        function activateFullscreen() {
+            const docEl = document.documentElement;
+            const requestFS = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullscreen || docEl.msRequestFullscreen;
+            
+            if (requestFS) {
+                requestFS.call(docEl).then(() => {
+                    console.log("System successfully switched to Fullscreen Kiosk Mode");
+                }).catch(err => {
+                    console.log("Fullscreen request blocked or deferred:", err);
+                });
             }
-            // एक बार फुलस्क्रीन होने के बाद इस लिसनर को हटा देंगे ताकि बार-बार डिस्टर्ब न हो
-            document.removeEventListener('click', triggerFullScreen);
-            document.removeEventListener('touchstart', triggerFullScreen);
+            
+            // इवेंट्स को क्लीनअप करें ताकि बार-बार ट्रिगर न हो
+            ['click', 'touchstart', 'pointerdown'].forEach(evt => {
+                document.removeEventListener(evt, activateFullscreen);
+            });
         }
 
         function startVideo() {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640, height: 480 } })
             .then(stream => { 
                 video.srcObject = stream;
-                // फ़र्स्ट टच लिसनर एक्टिवेट
-                document.addEventListener('click', triggerFullScreen, { once: true });
-                document.addEventListener('touchstart', triggerFullScreen, { once: true });
+                
+                // ग्लोबल इंटरेक्शन लिस्टर जो स्क्रीन पर किसी भी पहले जेस्चर पर तुरंत फुलस्क्रीन हिट करेगा
+                ['click', 'touchstart', 'pointerdown'].forEach(evt => {
+                    document.addEventListener(evt, activateFullscreen, { once: true });
+                });
+                
                 loadAIAndData();
             })
             .catch(err => { statusDiv.innerText = "CAMERA ERROR!"; });
@@ -138,7 +139,6 @@
                     statusDiv.innerText = "MAP DATA EMPTY!"; return; 
                 }
 
-                // हाई एक्यूरेसी थ्रेशोल्ड 0.38
                 faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.38);
                 statusDiv.innerText = "AI SECURITY SECURED";
                 statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
