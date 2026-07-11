@@ -2,62 +2,64 @@
 <html lang="hi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
     <title>APS AI Kiosk Attendance</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
-        body { overflow: hidden; touch-action: manipulation; background-color: #030712; }
+        /* पेज को थोड़ा एक्स्ट्रा स्पेस दिया है ताकि हेडर को नीचे स्क्रॉल करके छुपाया जा सके */
+        html, body { height: 105vh; overflow-x: hidden; touch-action: manipulation; background-color: #030712; }
         
-        /* [HEIGHT FIX] दोनों मुख्य डिब्बों की हाइट को बिल्कुल 6 इंच (6in) पर लॉक कर दिया है */
-        .kiosk-height {
+        /* बिल्कुल 6 इंच हाइट पर फिक्स सिंगल बॉक्स */
+        .single-kiosk-card {
             height: 6in !important;
+            position: relative; 
+            box-shadow: 0 0 35px rgba(6, 182, 212, 0.25); 
+            border: 2px solid rgba(6, 182, 212, 0.4);
         }
 
-        .scanner-container { position: relative; box-shadow: 0 0 30px rgba(6, 182, 212, 0.25); border: 2px solid rgba(6, 182, 212, 0.4); }
         .scanner-line { position: absolute; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, transparent, #06b6d4, transparent); animation: scan 2.5s linear infinite; box-shadow: 0 0 15px #06b6d4; }
         .scanner-line.verified { background: linear-gradient(90deg, transparent, #10b981, transparent); box-shadow: 0 0 15px #10b981; animation: none; top: 50%; }
         @keyframes scan { 0% { top: 0%; } 50% { top: 100%; } 100% { top: 0%; } }
     </style>
 </head>
-<body class="text-white font-sans h-screen w-screen flex flex-col m-0 p-0 select-none justify-between">
+<body class="text-white font-sans w-screen flex flex-col m-0 p-0 select-none justify-start items-center bg-slate-950 pt-4">
 
-    <main class="flex-1 w-full h-full flex flex-col md:flex-row p-3 gap-3 justify-center items-center">
-        <div class="scanner-container kiosk-height relative w-full md:w-3/5 bg-black rounded-2xl overflow-hidden">
-            <video id="video" autoplay muted playsinline class="w-full h-full object-cover scale-x-[-1]"></video>
-            <canvas id="overlay" class="absolute top-0 left-0 w-full h-full scale-x-[-1]"></canvas>
-            <div id="laser-bar" class="scanner-line"></div>
-            <div class="absolute top-4 left-4">
-                <div id="system-status" class="px-4 py-1.5 rounded-full text-xs font-black bg-cyan-950/70 text-cyan-400 border border-cyan-500/30 tracking-wider uppercase animate-pulse">
-                    AI MODELS LOADING...
+    <main class="w-full max-w-xl px-4 flex justify-center items-center">
+        <div id="master-kiosk" class="single-kiosk-card w-full bg-black rounded-3xl overflow-hidden shadow-2xl">
+            
+            <div id="camera-view" class="w-full h-full relative">
+                <video id="video" autoplay muted playsinline class="w-full h-full object-cover scale-x-[-1]"></video>
+                <canvas id="overlay" class="absolute top-0 left-0 w-full h-full scale-x-[-1]"></canvas>
+                <div id="laser-bar" class="scanner-line"></div>
+                
+                <div class="absolute top-4 left-4 z-10">
+                    <div id="system-status" class="px-4 py-1.5 rounded-full text-xs font-black bg-slate-900/80 text-cyan-400 border border-cyan-500/30 tracking-wider uppercase animate-pulse">
+                        AI MODELS LOADING...
+                    </div>
+                </div>
+
+                <div id="sub-status" class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-md border border-cyan-500/30 px-6 py-2 rounded-full shadow-lg z-10 flex items-center gap-2">
+                    <span class="flex h-2 w-2 relative"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span></span>
+                    <h3 class="text-[11px] font-black tracking-widest text-cyan-400 uppercase">SCANNER READY...</h3>
                 </div>
             </div>
-        </div>
 
-        <div id="info-card" class="kiosk-height w-full md:w-2/5 max-w-md bg-gray-900/60 backdrop-blur-md rounded-2xl border border-gray-800 p-6 flex flex-col items-center justify-center text-center">
-            <div id="info-placeholder" class="flex flex-col items-center">
-                <div class="w-20 h-20 bg-cyan-950/30 rounded-full flex items-center justify-center border border-cyan-500/20 shadow-lg">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 009 11V7a4 4 0 018 0v4c0 .654.054 1.3.159 1.93M12 11a4 4 0 00-4-4M12 11v8m0 0h.01" />
-                    </svg>
-                </div>
-                <h3 id="sub-status" class="text-sm font-black tracking-widest text-gray-400 mt-5 uppercase">SCANNER READY. STEP FORWARD...</h3>
-            </div>
-
-            <div id="info-result" class="hidden w-full flex flex-col items-center">
+            <div id="info-result" class="hidden w-full h-full bg-slate-900 flex flex-col items-center justify-center text-center p-6">
                 <div class="relative">
-                    <img id="student-img" src="" class="w-24 h-24 md:w-28 md:h-28 rounded-full object-cover border-4 border-emerald-500 shadow-xl shadow-emerald-500/30" alt="Student">
+                    <img id="student-img" src="" class="w-24 h-24 rounded-full object-cover border-4 border-emerald-500 shadow-xl shadow-emerald-500/30" alt="Student">
                 </div>
-                <h2 id="student-name" class="text-2xl md:text-3xl font-black text-emerald-400 mt-4 uppercase tracking-wide">---</h2>
+                <h2 id="student-name" class="text-2xl md:text-3xl font-black text-emerald-400 mt-3 uppercase tracking-wide">---</h2>
                 <p id="student-id" class="text-xs font-black text-cyan-400 mt-1 tracking-widest bg-cyan-950 px-3 py-1 rounded-md border border-cyan-500/20">ID: ---</p>
-                <div class="mt-4 px-8 py-2.5 rounded-xl text-sm font-black tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 uppercase">
+                <div class="mt-4 px-8 py-2 rounded-xl text-xs font-black tracking-widest bg-emerald-500 text-slate-950 uppercase shadow-md">
                     HAZIRI LOCKED (P)
                 </div>
             </div>
+
         </div>
     </main>
 
-    <audio id="beep-sound" src="https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg" preload="auto"></audio>
+    <audio id="beep-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-600.wav" preload="auto"></audio>
 
     <script>
         const BASE_API_URL = "https://script.google.com/macros/s/AKfycbxR2l-MYhAqKrVRD68C9hgvlMqHU6GalGp18Gvyoc05QFG3ixEA9o4xk4a31G8N5uKn/exec";
@@ -66,27 +68,29 @@
         const overlay = document.getElementById('overlay');
         const statusDiv = document.getElementById('system-status');
         const subStatus = document.getElementById('sub-status');
+        const cameraView = document.getElementById('camera-view');
+        const resultDiv = document.getElementById('info-result');
         const laserBar = document.getElementById('laser-bar');
         const beepSound = document.getElementById('beep-sound');
         
         let faceMatcher = null;
         let isProcessing = false;
 
-        // [100% BULLETPROOF FULLSCREEN RULES]
-        function activateFullscreen() {
+        // [HEADER HIDE & FULLSCREEN MASTER RULE]
+        function handleFirstTouch() {
+            // 1. ब्राउज़र हेडर छुपाने के लिए तुरंत ऑटो-स्क्रॉल डाउन ट्रिक
+            window.scrollTo(0, 1);
+            
+            // 2. फुलस्क्रीन ट्रिगर बैकअप
             const docEl = document.documentElement;
             const requestFS = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullscreen || docEl.msRequestFullscreen;
-            
-            if (requestFS) {
-                requestFS.call(docEl).then(() => {
-                    console.log("Fullscreen Activated.");
-                }).catch(err => {
-                    console.log("Error or Deferred:", err);
-                });
+            if (requestFS) { 
+                requestFS.call(docEl).catch(err => console.log("Fullscreen deferred, header hidden instead.")); 
             }
-            
+
+            // इवेंट्स हटा दें ताकि बार-बार स्क्रॉल डिस्टर्ब न हो
             ['click', 'touchstart', 'pointerdown'].forEach(evt => {
-                document.removeEventListener(evt, activateFullscreen);
+                document.removeEventListener(evt, handleFirstTouch);
             });
         }
 
@@ -95,9 +99,9 @@
             .then(stream => { 
                 video.srcObject = stream;
                 
-                // स्क्रीन पर कहीं भी पहला टच/क्लिक होते ही फुलस्क्रीन लॉक हो जाएगा
+                // स्क्रीन पर कहीं भी पहला टच या क्लिक होते ही हेडर गायब होगा और फुलस्क्रीन की कोशिश होगी
                 ['click', 'touchstart', 'pointerdown'].forEach(evt => {
-                    document.addEventListener(evt, activateFullscreen, { once: true });
+                    document.addEventListener(evt, handleFirstTouch, { once: true });
                 });
                 
                 loadAIAndData();
@@ -129,9 +133,7 @@
                     try {
                         const img = new Image(); 
                         img.src = student.photo; 
-                        await new Promise((resolve, reject) => {
-                            img.onload = resolve; img.onerror = reject; 
-                        });
+                        await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
 
                         const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
                         if (detections) {
@@ -140,15 +142,11 @@
                     } catch(e) {}
                 }
 
-                if(labeledDescriptors.length === 0) { 
-                    statusDiv.innerText = "MAP DATA EMPTY!"; return; 
-                }
+                if(labeledDescriptors.length === 0) { statusDiv.innerText = "MAP DATA EMPTY!"; return; }
 
-                // हाई एक्यूरेसी थ्रेशोल्ड 0.38
                 faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.38);
                 statusDiv.innerText = "AI SECURITY SECURED";
                 statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
-                subStatus.innerText = "LOOK DIRECTLY INTO CAMERA...";
                 
                 startScanningLoop();
             } catch (err) { statusDiv.innerText = "SYSTEM LOCKED DOWN!"; }
@@ -169,17 +167,10 @@
                     faceapi.draw.drawDetections(overlay, resizedDetection);
 
                     const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
-                    
                     if (bestMatch.label !== 'unknown') {
                         const [id, name, photo] = bestMatch.label.split('||');
                         triggerAttendance(id, name, photo);
-                    } else {
-                        subStatus.innerText = "ACCESS DENIED: UNKNOWN PERSON";
-                        subStatus.className = "text-sm font-black text-red-500 mt-5 tracking-wide";
                     }
-                } else {
-                    subStatus.innerText = "POSITION FACE INSIDE THE VIEWBOX...";
-                    subStatus.className = "text-sm font-bold text-gray-500 mt-5 tracking-widest";
                 }
             }, 250); 
         }
@@ -188,19 +179,18 @@
             isProcessing = true;
             
             try {
+                beepSound.volume = 1.0;
                 beepSound.currentTime = 0;
                 beepSound.play();
+                setTimeout(() => { beepSound.pause(); }, 1000); 
             } catch(e){}
 
-            document.getElementById('info-placeholder').classList.add('hidden');
-            const resultDiv = document.getElementById('info-result');
+            cameraView.classList.add('hidden');
             resultDiv.classList.remove('hidden');
             
             document.getElementById('student-name').innerText = studentName;
             document.getElementById('student-id').innerText = `ID: ${studentId}`;
             document.getElementById('student-img').src = studentPhoto;
-            
-            laserBar.className = "absolute left-0 w-full scanner-line verified";
 
             try {
                 const sheetTriggerUrl = `${BASE_API_URL}?studentId=${encodeURIComponent(studentId)}`;
@@ -208,9 +198,8 @@
             } catch (err) {}
 
             setTimeout(() => {
-                document.getElementById('info-placeholder').classList.remove('hidden');
                 resultDiv.classList.add('hidden');
-                laserBar.className = "absolute left-0 w-full scanner-line";
+                cameraView.classList.remove('hidden');
                 overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
                 isProcessing = false;
             }, 3500);
