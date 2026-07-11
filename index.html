@@ -7,18 +7,10 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
-        /* [NO SCROLL RULE] पूरे पेज पर स्क्रॉल बार को जड़ से ख़त्म और फ्रीज कर दिया है */
-        html, body { 
-            height: 100vh; 
-            width: 100vw; 
-            margin: 0; 
-            padding: 0; 
-            overflow: hidden; 
-            touch-action: none; 
-            background-color: #030712; 
-        }
+        /* [NO SCROLL RULE] */
+        html, body { height: 100vh; width: 100vw; margin: 0; padding: 0; overflow: hidden; touch-action: none; background-color: #030712; }
         
-        /* [AUTO RESIZE MASTER CLASS] मोबाइल चाहे 6 इंच हो या 8 इंच, यह कार्ड हमेशा स्क्रीन साइज में ऑटो-फिट रहेगा */
+        /* [AUTO RESIZE MASTER CLASS] */
         .dynamic-kiosk-card {
             width: 96vw;
             max-width: 540px;
@@ -70,8 +62,6 @@
         </div>
     </main>
 
-    <audio id="beep-sound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-600.wav" preload="auto"></audio>
-
     <script>
         const BASE_API_URL = "https://script.google.com/macros/s/AKfycbxR2l-MYhAqKrVRD68C9hgvlMqHU6GalGp18Gvyoc05QFG3ixEA9o4xk4a31G8N5uKn/exec";
 
@@ -82,19 +72,38 @@
         const cameraView = document.getElementById('camera-view');
         const resultDiv = document.getElementById('info-result');
         const laserBar = document.getElementById('laser-bar');
-        const beepSound = document.getElementById('beep-sound');
         
         let faceMatcher = null;
         let isProcessing = false;
 
-        // [100% BULLETPROOF FULLSCREEN FUNCTION ON FIRST TOUCH]
+        // [ULTRA LOUD IN-MEMORY BEEP GENERATOR] ब्राउज़र के अंदर ही डिजिटल कड़क बीप बजाने का नया इंजन
+        function playLoudKioskBeep() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                oscillator.type = 'sine'; // साफ़ डिजिटल टोन
+                oscillator.frequency.setValueAtTime(950, audioCtx.currentTime); // हाई-पिच लाउड फ्रीक्वेंसी
+                
+                gainNode.gain.setValueAtTime(1.0, audioCtx.currentTime); // फुल 100% लाउड वॉल्यूम
+                // 180 मिलीसेकंड पर फेड आउट (ताकि स्पीकर फटे नहीं और आवाज एकदम तीखी आए)
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.18); 
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.20); // 200ms में बीप पूरी तरह बंद
+            } catch (e) {
+                console.log("Audio API Error:", e);
+            }
+        }
+
         function activateFullscreen() {
             const docEl = document.documentElement;
             const requestFS = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullscreen || docEl.msRequestFullscreen;
-            if (requestFS) { 
-                requestFS.call(docEl).catch(err => console.log(err)); 
-            }
-            // इवेंट्स को तुरंत हटा देंगे ताकि दोबारा क्लिक पर दिक्कत न हो
+            if (requestFS) { requestFS.call(docEl).catch(err => console.log(err)); }
             ['click', 'touchstart', 'pointerdown'].forEach(evt => {
                 document.removeEventListener(evt, activateFullscreen);
             });
@@ -104,12 +113,9 @@
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640, height: 480 } })
             .then(stream => { 
                 video.srcObject = stream;
-                
-                // स्क्रीन पर पहले ही टच/जेस्चर पर 100% फुलस्क्रीन एक्टिवेट
                 ['click', 'touchstart', 'pointerdown'].forEach(evt => {
                     document.addEventListener(evt, activateFullscreen, { once: true });
                 });
-                
                 loadAIAndData();
             })
             .catch(err => { statusDiv.innerText = "CAMERA ERROR!"; });
@@ -150,7 +156,6 @@
 
                 if(labeledDescriptors.length === 0) { statusDiv.innerText = "MAP DATA EMPTY!"; return; }
 
-                // हाई-एक्यूरेसी लॉक्ड थ्रेशोल्ड 0.38
                 faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.38);
                 statusDiv.innerText = "AI SECURITY SECURED";
                 statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
@@ -185,17 +190,9 @@
         async function triggerAttendance(studentId, studentName, studentPhoto) {
             isProcessing = true;
             
-            // [300MS EXTRA LOUD BEEP LOCK] बिजली जैसी तेज़ कड़क बीप आवाज़ सिर्फ 300 मिलीसेकंड के लिए बजेगी
-            try {
-                beepSound.volume = 100.0; 
-                beepSound.currentTime = 0;
-                beepSound.play();
-                setTimeout(() => { 
-                    beepSound.pause(); 
-                }, 50); 
-            } catch(e){}
+            // नया लाउड डिजिटल टोन तुरंत प्ले होगा
+            playLoudKioskBeep();
 
-            // कैमरा मोड तुरंत छुपाएं और उसी सिंगल बॉक्स में छात्र का स्टेटस लोड करें
             cameraView.classList.add('hidden');
             resultDiv.classList.remove('hidden');
             
@@ -208,13 +205,13 @@
                 await fetch(sheetTriggerUrl, { method: 'POST', mode: 'no-cors' });
             } catch (err) {}
 
-            // 3.5 सेकंड का होल्ड टाइम फिर स्क्रीन स्मूथ रीसेट
+            // [FAST RESET LOCK] केवल 1.2 सेकंड का होल्ड टाइम ताकि लाइन फटाफट आगे बढ़ सके!
             setTimeout(() => {
                 resultDiv.classList.add('hidden');
                 cameraView.classList.remove('hidden');
                 overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
                 isProcessing = false;
-            }, 3500);
+            }, 1200);
         }
 
         window.onload = startVideo;
