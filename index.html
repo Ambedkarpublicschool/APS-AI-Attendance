@@ -59,7 +59,7 @@
     </main>
 
     <script>
-        const BASE_API_URL = "https://script.google.com/macros/s/AKfycbwUs9Dsd76QXK5xRaiq94T1cvLpWBOsHKLSHvlMf-Dwiii5E4vf_AuKIWh2Woy5DpYX/exec";
+        const BASE_API_URL = "https://script.google.com/macros/s/AKfycbxR2l-MYhAqKrVRD68C9hgvlMqHU6GalGp18Gvyoc05QFG3ixEA9o4xk4a31G8N5uKn/exec";
 
         const video = document.getElementById('video');
         const overlay = document.getElementById('overlay');
@@ -72,7 +72,6 @@
         let isProcessing = false;
         let studentLookupMap = {}; 
         let isLoopStarted = false;
-        let cachedLabeledDescriptors = [];
 
         function playLoudKioskBeep() {
             try {
@@ -118,20 +117,19 @@
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
+                // 🚀 रेडीमेड कैशे इंजन चालू करें
                 const savedMatrix = localStorage.getItem('aps_ai_matrix_cache');
                 const savedLookup = localStorage.getItem('aps_student_lookup_cache');
                 
                 if (savedMatrix && savedLookup) {
                     studentLookupMap = JSON.parse(savedLookup);
                     const rawDescriptors = JSON.parse(savedMatrix);
-                    cachedLabeledDescriptors = rawDescriptors.map(rd => {
+                    const labeledDescriptors = rawDescriptors.map(rd => {
                         const descriptors = rd.descriptors.map(d => new Float32Array(d));
                         return new faceapi.LabeledFaceDescriptors(rd.label, descriptors);
                     });
-                    faceMatcher = new faceapi.FaceMatcher(cachedLabeledDescriptors, 0.40);
-                    statusDiv.innerText = "INSTANT CORE ACTIVE";
-                    statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
-                    subStatusText.innerText = "SCANNER ACTIVE";
+                    faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.40);
+                    setSuccessStatus();
                 } else {
                     statusDiv.innerText = "INITIAL SYNC IN PROGRESS...";
                 }
@@ -151,11 +149,7 @@
                 const lastSyncTimestamp = localStorage.getItem('aps_last_sync_timestamp') || '0';
                 const checkUrl = `${BASE_API_URL}?lastSync=${lastSyncTimestamp}&_=${Date.now()}`;
                 
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 15000); 
-
-                const response = await fetch(checkUrl, { signal: controller.signal });
-                clearTimeout(timeoutId);
+                const response = await fetch(checkUrl);
                 const resData = await response.json();
 
                 if (resData && resData.status === "no_change") {
@@ -163,15 +157,11 @@
                     return;
                 }
 
-                if (resData && resData.status === "success" && resData.data && resData.data.length > 0) {
-                    // 🌟 DELTA VS FULL SYNC PROCESSING
-                    await buildAndCacheFaceMatcherProgressive(resData.data, resData.syncType === "delta");
+                if (resData && resData.status === "success" && resData.data) {
                     localStorage.setItem('aps_last_sync_timestamp', resData.serverTime.toString());
-                } else if (resData && resData.status === "success") {
-                    setSuccessStatus();
+                    processServerSideDescriptors(resData.data);
                 }
             } catch (e) {
-                console.log("Sync skipped:", e);
                 setOfflineStatus();
             }
         }
@@ -187,66 +177,36 @@
             subStatusText.innerText = "SCANNER ACTIVE";
         }
 
-        async function buildAndCacheFaceMatcherProgressive(data, isDeltaSync) {
-            subStatusText.innerText = isDeltaSync ? "SYNCING UPDATED STUDENTS..." : "PROCESSING FRESH MATRIX...";
+        // 🧠 0 सेकंड मोबाइल डाउनलोड इंजन - सर्वर से सीधे रेडीमेड मैट्रिक्स उठाएगा
+        function processServerSideDescriptors(data) {
+            const labeledDescriptors = [];
+            const tempLookupMap = {}; 
             
-            let tempLookupMap = JSON.parse(localStorage.getItem('aps_student_lookup_cache') || '{}');
-            let workingDescriptors = [...cachedLabeledDescriptors];
-
-            let index = 0;
             for (let student of data) {
-                if (!student.photo || student.photo.length < 50) continue; 
+                if (!student.photo || student.photo.indexOf("[[") === -1) continue; 
                 
-                // 🌟 अगर फुल सिंक है और छात्र पहले से है तो स्किप करें, लेकिन अगर DELTA सिंक है (यानी अपडेटेड छात्र आया है) तो स्किप न करें बल्कि रिप्लेस करें!
-                if (!isDeltaSync && tempLookupMap[student.id]) {
-                    index++;
-                    continue; 
-                }
+                tempLookupMap[student.id] = { name: student.name, photo: student.photo };
 
                 try {
-                    const img = new Image(); 
-                    img.src = student.photo; 
-                    await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
-
-                    const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
-                    if (detections) {
-                        const newLd = new faceapi.LabeledFaceDescriptors(student.id, [detections.descriptor]);
-                        
-                        // अगर छात्र पहले से मौजूद है तो पुरानी एंट्री हटा कर नई (Updated) एंट्री डालें
-                        const existingIdx = workingDescriptors.findIndex(ld => ld.label === student.id);
-                        if (existingIdx !== -1) {
-                            workingDescriptors[existingIdx] = newLd;
-                        } else {
-                            workingDescriptors.push(newLd);
-                        }
-                        
-                        tempLookupMap[student.id] = {
-                            name: student.name,
-                            photo: student.photo
-                        };
-
-                        studentLookupMap = tempLookupMap;
-                        faceMatcher = new faceapi.FaceMatcher(workingDescriptors, 0.40);
-                        
-                        if (index % 5 === 0 || index === data.length - 1) {
-                            const jsonReady = workingDescriptors.map(ld => ({
-                                label: ld.label,
-                                descriptors: ld.descriptors.map(d => Array.from(d))
-                            }));
-                            localStorage.setItem('aps_ai_matrix_cache', JSON.stringify(jsonReady));
-                            localStorage.setItem('aps_student_lookup_cache', JSON.stringify(tempLookupMap));
-                        }
-                    }
-                } catch(e) {
-                    console.log("Error row:", e);
-                }
-                
-                index++;
-                subStatusText.innerText = `UPDATED: ${index}/${data.length}`;
+                    const parsedArr = JSON.parse(student.photo);
+                    const floatArr = parsedArr.map(d => new Float32Array(d));
+                    labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(student.id, floatArr));
+                } catch(jsonE){}
             }
-
-            cachedLabeledDescriptors = workingDescriptors;
-            setSuccessStatus();
+            
+            if (labeledDescriptors.length > 0) {
+                studentLookupMap = tempLookupMap;
+                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.40);
+                
+                const jsonReadyDescriptors = labeledDescriptors.map(ld => ({
+                    label: ld.label,
+                    descriptors: ld.descriptors.map(d => Array.from(d))
+                }));
+                
+                localStorage.setItem('aps_ai_matrix_cache', JSON.stringify(jsonReadyDescriptors));
+                localStorage.setItem('aps_student_lookup_cache', JSON.stringify(tempLookupMap));
+                setSuccessStatus();
+            }
         }
 
         function startScanningLoop() {
@@ -297,7 +257,8 @@
             
             document.getElementById('student-name').innerText = studentName;
             document.getElementById('student-id').innerText = `ID: ${studentId}`;
-            document.getElementById('student-img').src = studentPhoto;
+            // डिस्क्रिप्टर स्ट्रिंग होने पर जेनेरिक आइकॉन सेट करें
+            document.getElementById('student-img').src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%252310b981' stroke-width='2'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>";
 
             try {
                 const sheetTriggerUrl = `${BASE_API_URL}?studentId=${encodeURIComponent(studentId)}`;
