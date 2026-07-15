@@ -46,7 +46,7 @@
 
             <div id="info-result" class="hidden w-full h-full bg-slate-900 flex flex-col items-center justify-center text-center p-6 transition-all">
                 <div class="relative">
-                    <img id="student-img" src="" class="w-28 h-28 rounded-full object-cover border-4 border-emerald-500 shadow-xl shadow-emerald-500/30" alt="Student" onerror="handleImageError(this)">
+                    <img id="student-img" src="" class="w-28 h-28 rounded-full object-cover border-4 border-emerald-500 shadow-xl shadow-emerald-500/30" alt="Student">
                 </div>
                 <h2 id="student-name" class="text-3xl font-black text-emerald-400 mt-4 uppercase tracking-wide">---</h2>
                 <p id="student-id" class="text-sm font-black text-cyan-400 mt-1 tracking-widest bg-cyan-950 px-4 py-1.5 rounded-md border border-cyan-500/20">ID: ---</p>
@@ -59,7 +59,7 @@
     </main>
 
     <script>
-        const BASE_API_URL = "https://script.google.com/macros/s/AKfycbxnhFzGy0ZTHhftmw1Ye9SC9FL9gh-YbcP6O1gAhi5AXCV31JF8_xX6lfly0-qVMwD6/exec";
+        const BASE_API_URL = "https://script.google.com/macros/s/AKfycbwQvGzv1sMrpoMK1SLcR9tqxBdVvRZf-_7xZ-kiPNICcLnvG_waGU5FldOjNE9oQLb9/exec";
 
         const video = document.getElementById('video');
         const overlay = document.getElementById('overlay');
@@ -124,12 +124,14 @@
                 if (savedMatrix && savedLookup) {
                     studentLookupMap = JSON.parse(savedLookup);
                     const rawDescriptors = JSON.parse(savedMatrix);
-                    const labeledDescriptors = rawDescriptors.map(rd => {
+                    cachedLabeledDescriptors = rawDescriptors.map(rd => {
                         const descriptors = rd.descriptors.map(d => new Float32Array(d));
                         return new faceapi.LabeledFaceDescriptors(rd.label, descriptors);
                     });
-                    faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.40);
-                    setSuccessStatus();
+                    faceMatcher = new faceapi.FaceMatcher(cachedLabeledDescriptors, 0.40);
+                    statusDiv.innerText = "INSTANT CORE ACTIVE";
+                    statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
+                    subStatusText.innerText = "SCANNER ACTIVE";
                 } else {
                     statusDiv.innerText = "INITIAL SYNC IN PROGRESS...";
                 }
@@ -149,7 +151,11 @@
                 const lastSyncTimestamp = localStorage.getItem('aps_last_sync_timestamp') || '0';
                 const checkUrl = `${BASE_API_URL}?lastSync=${lastSyncTimestamp}&_=${Date.now()}`;
                 
-                const response = await fetch(checkUrl);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000); 
+
+                const response = await fetch(checkUrl, { signal: controller.signal });
+                clearTimeout(timeoutId);
                 const resData = await response.json();
 
                 if (resData && resData.status === "no_change") {
@@ -157,11 +163,14 @@
                     return;
                 }
 
-                if (resData && resData.status === "success" && resData.data) {
+                if (resData && resData.status === "success" && resData.data && resData.data.length > 0) {
+                    await buildAndCacheFaceMatcherProgressive(resData.data, resData.syncType === "delta");
                     localStorage.setItem('aps_last_sync_timestamp', resData.serverTime.toString());
-                    processServerSideDescriptors(resData.data);
+                } else if (resData && resData.status === "success") {
+                    setSuccessStatus();
                 }
             } catch (e) {
+                console.log("Sync skipped:", e);
                 setOfflineStatus();
             }
         }
@@ -177,35 +186,94 @@
             subStatusText.innerText = "SCANNER ACTIVE";
         }
 
-        function processServerSideDescriptors(data) {
-            const labeledDescriptors = [];
-            const tempLookupMap = {}; 
+        async function saveDescriptorToCloud(studentId, descriptorFloat32) {
+            try {
+                const descriptorArray = Array.from(descriptorFloat32);
+                fetch(BASE_API_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    body: JSON.stringify({
+                        action: "save_descriptor",
+                        studentId: studentId,
+                        descriptor: descriptorArray
+                    })
+                });
+            } catch (err) {}
+        }
+
+        async function buildAndCacheFaceMatcherProgressive(data, isDeltaSync) {
+            subStatusText.innerText = isDeltaSync ? "SYNCING UPDATED STUDENTS..." : "LOADING PRECOMPUTED AI IDS...";
             
+            let tempLookupMap = JSON.parse(localStorage.getItem('aps_student_lookup_cache') || '{}');
+            let workingDescriptors = [...cachedLabeledDescriptors];
+
+            let index = 0;
             for (let student of data) {
-                if (!student.photo || student.photo.indexOf("[[") === -1) continue; 
+                if (!student.photo || student.photo.length < 50) continue; 
                 
-                tempLookupMap[student.id] = { name: student.name, photo: student.photo };
+                if (!isDeltaSync && tempLookupMap[student.id]) {
+                    index++;
+                    continue; 
+                }
 
                 try {
-                    const parsedArr = JSON.parse(student.photo);
-                    const floatArr = parsedArr.map(d => new Float32Array(d));
-                    labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(student.id, floatArr));
-                } catch(jsonE){}
-            }
-            
-            if (labeledDescriptors.length > 0) {
-                studentLookupMap = tempLookupMap;
-                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.40);
+                    let descriptorFloat = null;
+                    
+                    // ⚡ 1. अगर शीट से पहले से बना हुआ 128 अंकों का Face AI Descriptor आया है तो तुरंत लोड करें (0 मिलीसेकंड)
+                    if (student.faceDescriptor && Array.isArray(student.faceDescriptor) && student.faceDescriptor.length === 128) {
+                        descriptorFloat = new Float32Array(student.faceDescriptor);
+                    } 
+                    // 🛠️ 2. अगर छात्र नया है या फोटो अभी-अभी बदली है (Descriptor शीट में नहीं है), केवल तभी फोटो पर detectSingleFace चलाएं
+                    else {
+                        const img = new Image(); 
+                        img.src = student.photo; 
+                        await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
+
+                        const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+                        if (detections) {
+                            descriptorFloat = detections.descriptor;
+                            // 🚀 और तुरंत इसे Google Sheet के Face AI Descriptor कॉलम में सेव कर दें ताकि भविष्य में कभी टाइम न लगे!
+                            saveDescriptorToCloud(student.id, descriptorFloat);
+                        }
+                    }
+
+                    if (descriptorFloat) {
+                        const newLd = new faceapi.LabeledFaceDescriptors(student.id, [descriptorFloat]);
+                        
+                        const existingIdx = workingDescriptors.findIndex(ld => ld.label === student.id);
+                        if (existingIdx !== -1) {
+                            workingDescriptors[existingIdx] = newLd;
+                        } else {
+                            workingDescriptors.push(newLd);
+                        }
+                        
+                        tempLookupMap[student.id] = {
+                            name: student.name,
+                            photo: student.photo
+                        };
+
+                        studentLookupMap = tempLookupMap;
+                        faceMatcher = new faceapi.FaceMatcher(workingDescriptors, 0.40);
+                        
+                        if (index % 5 === 0 || index === data.length - 1) {
+                            const jsonReady = workingDescriptors.map(ld => ({
+                                label: ld.label,
+                                descriptors: ld.descriptors.map(d => Array.from(d))
+                            }));
+                            localStorage.setItem('aps_ai_matrix_cache', JSON.stringify(jsonReady));
+                            localStorage.setItem('aps_student_lookup_cache', JSON.stringify(tempLookupMap));
+                        }
+                    }
+                } catch(e) {
+                    console.log("Error row:", e);
+                }
                 
-                const jsonReadyDescriptors = labeledDescriptors.map(ld => ({
-                    label: ld.label,
-                    descriptors: ld.descriptors.map(d => Array.from(d))
-                }));
-                
-                localStorage.setItem('aps_ai_matrix_cache', JSON.stringify(jsonReadyDescriptors));
-                localStorage.setItem('aps_student_lookup_cache', JSON.stringify(tempLookupMap));
-                setSuccessStatus();
+                index++;
+                subStatusText.innerText = `LOADED: ${index}/${data.length}`;
             }
+
+            cachedLabeledDescriptors = workingDescriptors;
+            setSuccessStatus();
         }
 
         function startScanningLoop() {
@@ -240,14 +308,14 @@
                         const matchedId = bestMatch.label;
                         const studentInfo = studentLookupMap[matchedId];
                         if (studentInfo) {
-                            triggerAttendance(matchedId, studentInfo.name);
+                            triggerAttendance(matchedId, studentInfo.name, studentInfo.photo);
                         }
                     }
                 }
             }, 250); 
         }
 
-        async function triggerAttendance(studentId, studentName) {
+        async function triggerAttendance(studentId, studentName, studentPhoto) {
             isProcessing = true;
             playLoudKioskBeep();
 
@@ -256,12 +324,7 @@
             
             document.getElementById('student-name').innerText = studentName;
             document.getElementById('student-id').innerText = `ID: ${studentId}`;
-            
-            // 🚀 जादू: ID के आधार पर सीधे Google Drive से बच्चे की लाइव फोटो लोड करें
-            // इसके लिए हम 'student data' की शीट से इमेज खींच रहे हैं
-            const fileId = studentId.replace("APS", ""); 
-            const livePhotoUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w300`;
-            document.getElementById('student-img').src = livePhotoUrl;
+            document.getElementById('student-img').src = studentPhoto;
 
             try {
                 const sheetTriggerUrl = `${BASE_API_URL}?studentId=${encodeURIComponent(studentId)}`;
@@ -276,11 +339,6 @@
                 overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
                 isProcessing = false;
             }, 1200);
-        }
-
-        function handleImageError(image) {
-            // अगर ड्राइव फोटो लोड होने में कोई समस्या आए, तो सुंदर जेनेरिक यूजर आइकॉन दिखाएं
-            image.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%252310b981' stroke-width='2'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>";
         }
 
         window.onload = startVideo;
