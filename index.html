@@ -46,7 +46,7 @@
 
             <div id="info-result" class="hidden w-full h-full bg-slate-900 flex flex-col items-center justify-center text-center p-6 transition-all">
                 <div class="relative">
-                    <img id="student-img" src="" class="w-28 h-28 rounded-full object-cover border-4 border-emerald-500 shadow-xl shadow-emerald-500/30" alt="Student">
+                    <img id="student-img" src="" class="w-28 h-28 rounded-full object-cover border-4 border-emerald-500 shadow-xl shadow-emerald-500/30" alt="Student" onerror="handleImageError(this)">
                 </div>
                 <h2 id="student-name" class="text-3xl font-black text-emerald-400 mt-4 uppercase tracking-wide">---</h2>
                 <p id="student-id" class="text-sm font-black text-cyan-400 mt-1 tracking-widest bg-cyan-950 px-4 py-1.5 rounded-md border border-cyan-500/20">ID: ---</p>
@@ -59,7 +59,7 @@
     </main>
 
     <script>
-        const BASE_API_URL = "https://script.google.com/macros/s/AKfycbxZyt3ZYSU2c6G8H_hOv5Sj-rPPFrtcefuj5O5OilTD0gCBC2uT5PDSSyrJqB4TJr0X/exec";
+        const BASE_API_URL = "https://script.google.com/macros/s/AKfycbwNHMUNtylQ4NlOJCBa8BXUsq269eL-PxaYXwuEdkYIxiThGh5smMwgW-jwZXLvoiQ9/exec";
 
         const video = document.getElementById('video');
         const overlay = document.getElementById('overlay');
@@ -72,6 +72,7 @@
         let isProcessing = false;
         let studentLookupMap = {}; 
         let isLoopStarted = false;
+        let cachedLabeledDescriptors = [];
 
         function playLoudKioskBeep() {
             try {
@@ -117,7 +118,6 @@
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-                // 🚀 रेडीमेड कैशे इंजन चालू करें
                 const savedMatrix = localStorage.getItem('aps_ai_matrix_cache');
                 const savedLookup = localStorage.getItem('aps_student_lookup_cache');
                 
@@ -177,7 +177,6 @@
             subStatusText.innerText = "SCANNER ACTIVE";
         }
 
-        // 🧠 0 सेकंड मोबाइल डाउनलोड इंजन - सर्वर से सीधे रेडीमेड मैट्रिक्स उठाएगा
         function processServerSideDescriptors(data) {
             const labeledDescriptors = [];
             const tempLookupMap = {}; 
@@ -241,14 +240,14 @@
                         const matchedId = bestMatch.label;
                         const studentInfo = studentLookupMap[matchedId];
                         if (studentInfo) {
-                            triggerAttendance(matchedId, studentInfo.name, studentInfo.photo);
+                            triggerAttendance(matchedId, studentInfo.name);
                         }
                     }
                 }
             }, 250); 
         }
 
-        async function triggerAttendance(studentId, studentName, studentPhoto) {
+        async function triggerAttendance(studentId, studentName) {
             isProcessing = true;
             playLoudKioskBeep();
 
@@ -257,8 +256,12 @@
             
             document.getElementById('student-name').innerText = studentName;
             document.getElementById('student-id').innerText = `ID: ${studentId}`;
-            // डिस्क्रिप्टर स्ट्रिंग होने पर जेनेरिक आइकॉन सेट करें
-            document.getElementById('student-img').src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%252310b981' stroke-width='2'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>";
+            
+            // 🚀 जादू: ID के आधार पर सीधे Google Drive से बच्चे की लाइव फोटो लोड करें
+            // इसके लिए हम 'student data' की शीट से इमेज खींच रहे हैं
+            const fileId = studentId.replace("APS", ""); 
+            const livePhotoUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w300`;
+            document.getElementById('student-img').src = livePhotoUrl;
 
             try {
                 const sheetTriggerUrl = `${BASE_API_URL}?studentId=${encodeURIComponent(studentId)}`;
@@ -273,6 +276,11 @@
                 overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
                 isProcessing = false;
             }, 1200);
+        }
+
+        function handleImageError(image) {
+            // अगर ड्राइव फोटो लोड होने में कोई समस्या आए, तो सुंदर जेनेरिक यूजर आइकॉन दिखाएं
+            image.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%252310b981' stroke-width='2'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>";
         }
 
         window.onload = startVideo;
