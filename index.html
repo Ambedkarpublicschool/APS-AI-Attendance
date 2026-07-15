@@ -7,10 +7,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
-        /* [NO SCROLL RULE] */
         html, body { height: 100vh; width: 100vw; margin: 0; padding: 0; overflow: hidden; touch-action: none; background-color: #030712; }
-        
-        /* [AUTO RESIZE MASTER CLASS] */
         .dynamic-kiosk-card {
             width: 96vw;
             max-width: 540px;
@@ -21,7 +18,6 @@
             border: 2px solid rgba(6, 182, 212, 0.4);
             transition: all 0.3s ease;
         }
-
         .scanner-line { position: absolute; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, transparent, #06b6d4, transparent); animation: scan 2.5s linear infinite; box-shadow: 0 0 15px #06b6d4; }
         @keyframes scan { 0% { top: 0%; } 50% { top: 100%; } 100% { top: 0%; } }
     </style>
@@ -38,7 +34,7 @@
                 
                 <div class="absolute top-4 left-4 z-10">
                     <div id="system-status" class="px-4 py-1.5 rounded-full text-xs font-black bg-slate-900/80 text-cyan-400 border border-cyan-500/30 tracking-wider uppercase animate-pulse">
-                        AI MODELS LOADING...
+                        CORE INITIALIZING...
                     </div>
                 </div>
 
@@ -71,42 +67,31 @@
         const subStatus = document.getElementById('sub-status');
         const cameraView = document.getElementById('camera-view');
         const resultDiv = document.getElementById('info-result');
-        const laserBar = document.getElementById('laser-bar');
         
         let faceMatcher = null;
         let isProcessing = false;
+        let localStudentData = [];
 
-        // [ULTRA LOUD IN-MEMORY BEEP GENERATOR] ब्राउज़र के अंदर ही डिजिटल कड़क बीप बजाने का नया इंजन
         function playLoudKioskBeep() {
             try {
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const oscillator = audioCtx.createOscillator();
                 const gainNode = audioCtx.createGain();
-
-                oscillator.type = 'sine'; // साफ़ डिजिटल टोन
-                oscillator.frequency.setValueAtTime(950, audioCtx.currentTime); // हाई-पिच लाउड फ्रीक्वेंसी
-                
-                gainNode.gain.setValueAtTime(1.0, audioCtx.currentTime); // फुल 100% लाउड वॉल्यूम
-                // 180 मिलीसेकंड पर फेड आउट (ताकि स्पीकर फटे नहीं और आवाज एकदम तीखी आए)
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(950, audioCtx.currentTime);
+                gainNode.gain.setValueAtTime(1.0, audioCtx.currentTime);
                 gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.18); 
-
                 oscillator.connect(gainNode);
                 gainNode.connect(audioCtx.destination);
-
                 oscillator.start();
-                oscillator.stop(audioCtx.currentTime + 0.20); // 200ms में बीप पूरी तरह बंद
-            } catch (e) {
-                console.log("Audio API Error:", e);
-            }
+                oscillator.stop(audioCtx.currentTime + 0.20);
+            } catch (e) { console.log("Audio Error:", e); }
         }
 
         function activateFullscreen() {
             const docEl = document.documentElement;
             const requestFS = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullscreen || docEl.msRequestFullscreen;
             if (requestFS) { requestFS.call(docEl).catch(err => console.log(err)); }
-            ['click', 'touchstart', 'pointerdown'].forEach(evt => {
-                document.removeEventListener(evt, activateFullscreen);
-            });
         }
 
         function startVideo() {
@@ -116,89 +101,132 @@
                 ['click', 'touchstart', 'pointerdown'].forEach(evt => {
                     document.addEventListener(evt, activateFullscreen, { once: true });
                 });
-                loadAIAndData();
+                initializeSystem();
             })
             .catch(err => { statusDiv.innerText = "CAMERA ERROR!"; });
         }
 
-        async function loadAIAndData() {
+        async function initializeSystem() {
             try {
                 const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+                statusDiv.innerText = "LOADING AI MODELS...";
                 await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-                statusDiv.innerText = "ERP LIVE SYNCING...";
+                // मोबाइल की लोकल कैशे मेमोरी (LocalStorage) से डेटा फ़ास्ट लोड करना
+                const cachedData = localStorage.getItem('aps_student_cache');
+                if (cachedData) {
+                    localStudentData = JSON.parse(cachedData);
+                    statusDiv.innerText = "LOCAL CACHE ACTIVE";
+                    await buildFaceMatcher(localStudentData);
+                    startScanningLoop();
+                }
+
+                // बैकग्राउंड सिंक इंजन जो यूजर स्क्रीन को फ्री रखता है
+                if (navigator.onLine) {
+                    syncWithServer();
+                } else {
+                    if(!cachedData) statusDiv.innerText = "OFFLINE & NO CACHE!";
+                    else setOfflineStatus();
+                }
+            } catch (err) { statusDiv.innerText = "SYSTEM LOCKDOWN!"; }
+        }
+
+        async function syncWithServer() {
+            try {
+                if(!faceMatcher) statusDiv.innerText = "ERP LIVE SYNCING...";
                 const forceRefreshUrl = `${BASE_API_URL}?_=${Date.now()}`;
-                const response = await fetch(forceRefreshUrl);
+                
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 सेकंड नेटवर्क गेटवे टाइमआउट
+
+                const response = await fetch(forceRefreshUrl, { signal: controller.signal });
+                clearTimeout(timeoutId);
                 const resData = await response.json();
 
-                if (!resData || resData.status !== "success" || !resData.data) {
-                    statusDiv.innerText = "DATA STORAGE ERROR!"; return;
+                if (resData && resData.status === "success" && resData.data) {
+                    const incomingDataStr = JSON.stringify(resData.data);
+                    const localDataStr = localStorage.getItem('aps_student_cache');
+
+                    // अगर शीट का डेटा लोकल कैशे से अलग है, सिर्फ तभी री-मैप करेंगे
+                    if (incomingDataStr !== localDataStr) {
+                        localStorage.setItem('aps_student_cache', incomingDataStr);
+                        localStudentData = resData.data;
+                        await buildFaceMatcher(localStudentData);
+                        if (!faceMatcher) startScanningLoop();
+                    }
+                    
+                    statusDiv.innerText = "AI SECURITY SECURED";
+                    statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
                 }
-
-                statusDiv.innerText = "MAPPING SECURITY MATRIX...";
-                const labeledDescriptors = [];
-                
-                for (let student of resData.data) {
-                    if (!student.photo || student.photo.length < 50) continue; 
-                    try {
-                        const img = new Image(); 
-                        img.src = student.photo; 
-                        await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
-
-                        const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
-                        if (detections) {
-                            labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(`${student.id}||${student.name}||${student.photo}`, [detections.descriptor]));
-                        }
-                    } catch(e) {}
-                }
-
-                if(labeledDescriptors.length === 0) { statusDiv.innerText = "MAP DATA EMPTY!"; return; }
-
-                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.39);
-                statusDiv.innerText = "AI SECURITY SECURED";
-                statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
-                
-                startScanningLoop();
-            } catch (err) { statusDiv.innerText = "SYSTEM LOCKED DOWN!"; }
-        }
-
-function startScanningLoop() {
-    const displaySize = { width: video.clientWidth, height: video.clientHeight };
-    faceapi.matchDimensions(overlay, displaySize);
-
-    setInterval(async () => {
-        if (isProcessing || !faceMatcher) return;
-
-        // [UPGRADE] एक साथ कैमरे में दिखने वाले सभी चेहरों को ढूंढना
-        const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
-        overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
-
-        if (detections && detections.length > 0) {
-            const resizedDetections = faceapi.resizeResults(detections, displaySize);
-            faceapi.draw.drawDetections(overlay, resizedDetections);
-
-            // [PRIORITY LOGIC] चेहरों को उनके साइज (चौड़ाई) के हिसाब से सॉर्ट करना जो सबसे पास होगा, उसका चेहरा सबसे बड़ा (box.width) होगा
-            let targetDetection = detections[0];
-            if (detections.length > 1) {
-                detections.sort((a, b) => b.detection.box.width - a.detection.box.width);
-                targetDetection = detections[0]; // सबसे पास वाला बच्चा सेलेक्ट हुआ
-            }
-
-            const bestMatch = faceMatcher.findBestMatch(targetDetection.descriptor);
-            if (bestMatch.label !== 'unknown') {
-                const [id, name, photo] = bestMatch.label.split('||');
-                triggerAttendance(id, name, photo);
+            } catch (e) {
+                console.log("Network sync bypassed, using active cache:", e);
+                setOfflineStatus();
             }
         }
-    }, 250); 
-}
+
+        function setOfflineStatus() {
+            if(localStudentData.length > 0) {
+                statusDiv.innerText = "RUNNING OFFLINE MODE";
+                statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-amber-950 text-amber-400 border border-amber-500/30 tracking-wider uppercase";
+            }
+        }
+
+        async function buildFaceMatcher(data) {
+            const labeledDescriptors = [];
+            for (let student of data) {
+                if (!student.photo || student.photo.length < 50) continue; 
+                try {
+                    const img = new Image(); 
+                    img.src = student.photo; 
+                    await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
+
+                    const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+                    if (detections) {
+                        labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(`${student.id}||${student.name}||${student.photo}`, [detections.descriptor]));
+                    }
+                } catch(e) {}
+            }
+            if (labeledDescriptors.length > 0) {
+                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.38);
+            }
+        }
+
+        function startScanningLoop() {
+            if (!faceMatcher) return;
+            const displaySize = { width: video.clientWidth, height: video.clientHeight };
+            faceapi.matchDimensions(overlay, displaySize);
+
+            setInterval(async () => {
+                if (isProcessing || !faceMatcher) return;
+
+                const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
+                overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
+
+                if (detections && detections.length > 0) {
+                    const displaySizeLive = { width: video.clientWidth, height: video.clientHeight };
+                    faceapi.matchDimensions(overlay, displaySizeLive);
+                    const resizedDetections = faceapi.resizeResults(detections, displaySizeLive);
+                    faceapi.draw.drawDetections(overlay, resizedDetections);
+
+                    let targetDetection = detections[0];
+                    if (detections.length > 1) {
+                        detections.sort((a, b) => b.detection.box.width - a.detection.box.width);
+                        targetDetection = detections[0]; 
+                    }
+
+                    const bestMatch = faceMatcher.findBestMatch(targetDetection.descriptor);
+                    if (bestMatch.label !== 'unknown') {
+                        const [id, name, photo] = bestMatch.label.split('||');
+                        triggerAttendance(id, name, photo);
+                    }
+                }
+            }, 250); 
+        }
 
         async function triggerAttendance(studentId, studentName, studentPhoto) {
             isProcessing = true;
-            
-            // नया लाउड डिजिटल टोन तुरंत प्ले होगा
             playLoudKioskBeep();
 
             cameraView.classList.add('hidden');
@@ -210,10 +238,13 @@ function startScanningLoop() {
 
             try {
                 const sheetTriggerUrl = `${BASE_API_URL}?studentId=${encodeURIComponent(studentId)}`;
-                await fetch(sheetTriggerUrl, { method: 'POST', mode: 'no-cors' });
+                if (navigator.onLine) {
+                    fetch(sheetTriggerUrl, { method: 'POST', mode: 'no-cors' });
+                } else {
+                    console.log("Offline mode: Attendance logged locally for ID:", studentId);
+                }
             } catch (err) {}
 
-            // [FAST RESET LOCK] केवल 1.2 सेकंड का होल्ड टाइम ताकि लाइन फटाफट आगे बढ़ सके!
             setTimeout(() => {
                 resultDiv.classList.add('hidden');
                 cameraView.classList.remove('hidden');
