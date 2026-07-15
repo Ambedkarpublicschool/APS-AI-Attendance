@@ -115,54 +115,68 @@
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-                // लोकल कैशे से तुरंत डेटा उठाकर बिना देरी किए स्कैन चालू करना
-                const cachedData = localStorage.getItem('aps_student_cache');
-                if (cachedData) {
-                    const parsedData = JSON.parse(cachedData);
-                    statusDiv.innerText = "LOCAL CACHE ACTIVE";
-                    statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
-                    await buildFaceMatcher(parsedData);
+                // बिना किसी देरी के 0 सेकंड में लाइव कैशे चालू करना
+                const savedMatrix = localStorage.getItem('aps_ai_matrix_cache');
+                const savedLookup = localStorage.getItem('aps_student_lookup_cache');
+                
+                if (savedMatrix && savedLookup) {
+                    studentLookupMap = JSON.parse(savedLookup);
+                    const rawDescriptors = JSON.parse(savedMatrix);
+                    
+                    const labeledDescriptors = rawDescriptors.map(rd => {
+                        const descriptors = rd.descriptors.map(d => new Float32Array(d));
+                        return new faceapi.LabeledFaceDescriptors(rd.label, descriptors);
+                    });
+                    
+                    faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.40);
                     startScanningLoop();
+                    
+                    statusDiv.innerText = "INSTANT LOCAL CACHE ACTIVE";
+                    statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
+                    subStatusText.innerText = "SCANNER ACTIVE";
                 } else {
-                    statusDiv.innerText = "FIRST RUN: NEED ONLINE SYNC";
+                    statusDiv.innerText = "FIRST RUN: INITIALIZING ONLINE";
                 }
 
-                // बैकग्राउंड सिंक - यह यूजर को बिल्कुल नहीं अटकाएगा
                 if (navigator.onLine) {
-                    setTimeout(syncWithServer, 500);
+                    setTimeout(syncWithServer, 100);
                 } else {
-                    if(!cachedData) statusDiv.innerText = "OFFLINE & NO DATA!";
-                    else setOfflineStatus();
+                    setOfflineStatus();
                 }
             } catch (err) { statusDiv.innerText = "SYSTEM LOCKDOWN!"; }
         }
 
         async function syncWithServer() {
             try {
-                const forceRefreshUrl = `${BASE_API_URL}?_=${Date.now()}`;
+                // लोकल स्टोरेज से आखिरी बार रिकॉर्ड किया गया टाइमस्टैम्प उठाएं
+                const lastSyncTimestamp = localStorage.getItem('aps_last_sync_timestamp') || '0';
+                
+                // केवल टाइमस्टैम्प भेजें—सर्वर को पता चल जाएगा कि नया डेटा भेजना है या नहीं
+                const checkUrl = `${BASE_API_URL}?lastSync=${lastSyncTimestamp}&_=${Date.now()}`;
+                
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 10000); 
 
-                const response = await fetch(forceRefreshUrl, { signal: controller.signal });
+                const response = await fetch(checkUrl, { signal: controller.signal });
                 clearTimeout(timeoutId);
                 const resData = await response.json();
 
-                if (resData && resData.status === "success" && resData.data) {
-                    const incomingDataStr = JSON.stringify(resData.data);
-                    const localDataStr = localStorage.getItem('aps_student_cache');
-
-                    if (incomingDataStr !== localDataStr) {
-                        localStorage.setItem('aps_student_cache', incomingDataStr);
-                        await buildFaceMatcher(resData.data);
-                        // अगर लोकल डेटा नहीं था और लूप चालू नहीं हुआ था, तो अब चालू करें
-                        if (!isLoopStarted) startScanningLoop();
-                    }
-                    
-                    statusDiv.innerText = "AI SECURITY SECURED";
+                // 🌟 अगर सर्वर कहता है 'no_change', तो पूरा डेटा मंगाने की कोई ज़रूरत नहीं!
+                if (resData && resData.status === "no_change") {
+                    statusDiv.innerText = "AI SECURITY SECURED (SMART CACHE)";
                     statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
+                    if (!isLoopStarted) startScanningLoop();
+                    return;
+                }
+
+                // अगर कोई नया एडमिशन या बदलाव हुआ है, तभी डेटा रिफ्रेश होगा
+                if (resData && resData.status === "success" && resData.data) {
+                    localStorage.setItem('aps_last_sync_timestamp', resData.serverTime.toString());
+                    await buildAndCacheFaceMatcher(resData.data);
+                    if (!isLoopStarted) startScanningLoop();
                 }
             } catch (e) {
-                console.log("Sync bypassed:", e);
+                console.log("Delta Sync bypassed:", e);
                 setOfflineStatus();
             }
         }
@@ -172,15 +186,15 @@
             statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-amber-950 text-amber-400 border border-amber-500/30 tracking-wider uppercase";
         }
 
-        async function buildFaceMatcher(data) {
+        async function buildAndCacheFaceMatcher(data) {
             const labeledDescriptors = [];
-            studentLookupMap = {}; 
-            subStatusText.innerText = "MAPPING MATRIX...";
+            const tempLookupMap = {}; 
+            subStatusText.innerText = "PROCESSING FRESH MATRIX...";
             
             for (let student of data) {
                 if (!student.photo || student.photo.length < 50) continue; 
                 
-                studentLookupMap[student.id] = {
+                tempLookupMap[student.id] = {
                     name: student.name,
                     photo: student.photo
                 };
@@ -198,10 +212,20 @@
             }
             
             if (labeledDescriptors.length > 0) {
+                studentLookupMap = tempLookupMap;
                 faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.40);
+                
+                const jsonReadyDescriptors = labeledDescriptors.map(ld => ({
+                    label: ld.label,
+                    descriptors: ld.descriptors.map(d => Array.from(d))
+                }));
+                
+                localStorage.setItem('aps_ai_matrix_cache', JSON.stringify(jsonReadyDescriptors));
+                localStorage.setItem('aps_student_lookup_cache', JSON.stringify(tempLookupMap));
+                
                 subStatusText.innerText = "SCANNER ACTIVE";
-            } else {
-                subStatusText.innerText = "MAP EMPTY!";
+                statusDiv.innerText = "AI SECURITY SECURED";
+                statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
             }
         }
 
