@@ -59,7 +59,7 @@
     </main>
 
     <script>
-        const BASE_API_URL = "https://script.google.com/macros/s/AKfycbyHP9KG1dLDlPXOl7wxN5kpKbSOV_r6gkQ0I1RQ3ZuLUIG0wB5OYIgLUeu5RKNqU5fu/exec";
+        const BASE_API_URL = "https://script.google.com/macros/s/AKfycbwUs9Dsd76QXK5xRaiq94T1cvLpWBOsHKLSHvlMf-Dwiii5E4vf_AuKIWh2Woy5DpYX/exec";
 
         const video = document.getElementById('video');
         const overlay = document.getElementById('overlay');
@@ -152,7 +152,7 @@
                 const checkUrl = `${BASE_API_URL}?lastSync=${lastSyncTimestamp}&_=${Date.now()}`;
                 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 12000); 
+                const timeoutId = setTimeout(() => controller.abort(), 15000); 
 
                 const response = await fetch(checkUrl, { signal: controller.signal });
                 clearTimeout(timeoutId);
@@ -163,9 +163,12 @@
                     return;
                 }
 
-                if (resData && resData.status === "success" && resData.data) {
+                if (resData && resData.status === "success" && resData.data && resData.data.length > 0) {
+                    // 🌟 DELTA VS FULL SYNC PROCESSING
+                    await buildAndCacheFaceMatcherProgressive(resData.data, resData.syncType === "delta");
                     localStorage.setItem('aps_last_sync_timestamp', resData.serverTime.toString());
-                    await buildAndCacheFaceMatcherProgressive(resData.data);
+                } else if (resData && resData.status === "success") {
+                    setSuccessStatus();
                 }
             } catch (e) {
                 console.log("Sync skipped:", e);
@@ -184,8 +187,8 @@
             subStatusText.innerText = "SCANNER ACTIVE";
         }
 
-        async function buildAndCacheFaceMatcherProgressive(data) {
-            subStatusText.innerText = "PROCESSING FRESH MATRIX...";
+        async function buildAndCacheFaceMatcherProgressive(data, isDeltaSync) {
+            subStatusText.innerText = isDeltaSync ? "SYNCING UPDATED STUDENTS..." : "PROCESSING FRESH MATRIX...";
             
             let tempLookupMap = JSON.parse(localStorage.getItem('aps_student_lookup_cache') || '{}');
             let workingDescriptors = [...cachedLabeledDescriptors];
@@ -194,7 +197,8 @@
             for (let student of data) {
                 if (!student.photo || student.photo.length < 50) continue; 
                 
-                if (tempLookupMap[student.id]) {
+                // 🌟 अगर फुल सिंक है और छात्र पहले से है तो स्किप करें, लेकिन अगर DELTA सिंक है (यानी अपडेटेड छात्र आया है) तो स्किप न करें बल्कि रिप्लेस करें!
+                if (!isDeltaSync && tempLookupMap[student.id]) {
                     index++;
                     continue; 
                 }
@@ -207,7 +211,14 @@
                     const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
                     if (detections) {
                         const newLd = new faceapi.LabeledFaceDescriptors(student.id, [detections.descriptor]);
-                        workingDescriptors.push(newLd);
+                        
+                        // अगर छात्र पहले से मौजूद है तो पुरानी एंट्री हटा कर नई (Updated) एंट्री डालें
+                        const existingIdx = workingDescriptors.findIndex(ld => ld.label === student.id);
+                        if (existingIdx !== -1) {
+                            workingDescriptors[existingIdx] = newLd;
+                        } else {
+                            workingDescriptors.push(newLd);
+                        }
                         
                         tempLookupMap[student.id] = {
                             name: student.name,
@@ -217,7 +228,7 @@
                         studentLookupMap = tempLookupMap;
                         faceMatcher = new faceapi.FaceMatcher(workingDescriptors, 0.40);
                         
-                        if (index % 10 === 0 || index === data.length - 1) {
+                        if (index % 5 === 0 || index === data.length - 1) {
                             const jsonReady = workingDescriptors.map(ld => ({
                                 label: ld.label,
                                 descriptors: ld.descriptors.map(d => Array.from(d))
@@ -231,7 +242,7 @@
                 }
                 
                 index++;
-                subStatusText.innerText = `MAPPED: ${index}/${data.length}`;
+                subStatusText.innerText = `UPDATED: ${index}/${data.length}`;
             }
 
             cachedLabeledDescriptors = workingDescriptors;
