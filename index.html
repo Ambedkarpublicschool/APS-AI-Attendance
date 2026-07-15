@@ -72,6 +72,7 @@
         let isProcessing = false;
         let studentLookupMap = {}; 
         let isLoopStarted = false;
+        let cachedLabeledDescriptors = []; // प्रोग्रेसिव लोडिंग एरे
 
         function playLoudKioskBeep() {
             try {
@@ -102,7 +103,6 @@
                 ['click', 'touchstart', 'pointerdown'].forEach(evt => {
                     document.addEventListener(evt, activateFullscreen, { once: true });
                 });
-                // जब वीडियो सच में प्ले होना शुरू हो जाए, तभी AI और कैशे लोड करें ताकि साइज की गड़बड़ी न हो
                 video.onloadedmetadata = () => {
                     initializeSystem();
                 };
@@ -118,7 +118,7 @@
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-                // 🚀 कैशे डेटा लोड करें
+                // 🚀 लोकल कैशे चेक करें
                 const savedMatrix = localStorage.getItem('aps_ai_matrix_cache');
                 const savedLookup = localStorage.getItem('aps_student_lookup_cache');
                 
@@ -126,21 +126,22 @@
                     studentLookupMap = JSON.parse(savedLookup);
                     const rawDescriptors = JSON.parse(savedMatrix);
                     
-                    const labeledDescriptors = rawDescriptors.map(rd => {
+                    cachedLabeledDescriptors = rawDescriptors.map(rd => {
                         const descriptors = rd.descriptors.map(d => new Float32Array(d));
                         return new faceapi.LabeledFaceDescriptors(rd.label, descriptors);
                     });
                     
-                    faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.40);
+                    faceMatcher = new faceapi.FaceMatcher(cachedLabeledDescriptors, 0.40);
+                    startScanningLoop();
+                    
                     statusDiv.innerText = "INSTANT LOCAL CACHE ACTIVE";
                     statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
                     subStatusText.innerText = "SCANNER ACTIVE";
                 } else {
                     statusDiv.innerText = "FIRST RUN: INITIALIZING ONLINE";
+                    // पहली बार लोड होने पर भी खाली मैच्योरिटी के साथ स्कैनिंग लूप चालू रखें ताकि कैमरा चालू रहे
+                    startScanningLoop();
                 }
-
-                // तुरंत स्कैनिंग लूप को फायर करें ताकि बॉक्स बन सके
-                startScanningLoop();
 
                 if (navigator.onLine) {
                     setTimeout(syncWithServer, 300);
@@ -170,7 +171,8 @@
 
                 if (resData && resData.status === "success" && resData.data) {
                     localStorage.setItem('aps_last_sync_timestamp', resData.serverTime.toString());
-                    await buildAndCacheFaceMatcher(resData.data);
+                    // प्रोग्रेसिव अपडेट शुरू करें
+                    await buildAndCacheFaceMatcherProgressive(resData.data);
                 }
             } catch (e) {
                 console.log("Delta Sync bypassed:", e);
@@ -183,18 +185,23 @@
             statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-amber-950 text-amber-400 border border-amber-500/30 tracking-wider uppercase";
         }
 
-        async function buildAndCacheFaceMatcher(data) {
-            const labeledDescriptors = [];
-            const tempLookupMap = {}; 
+        // 🧠 प्रोग्रेसिव मैट्रिक्स जनरेटर: यह एक-एक करके बच्चे को लोड करेगा और तुरंत कैशे में सेव करेगा
+        async function buildAndCacheFaceMatcherProgressive(data) {
             subStatusText.innerText = "PROCESSING FRESH MATRIX...";
             
+            // पुराने प्रोग्रेसिव लोड को एरे में कॉपी करें
+            let tempLookupMap = JSON.parse(localStorage.getItem('aps_student_lookup_cache') || '{}');
+            let workingDescriptors = [...cachedLabeledDescriptors];
+
+            let index = 0;
             for (let student of data) {
                 if (!student.photo || student.photo.length < 50) continue; 
                 
-                tempLookupMap[student.id] = {
-                    name: student.name,
-                    photo: student.photo
-                };
+                // अगर यह स्टूडेंट पहले से मैप में सही तरीके से सेव्ड है, तो प्रोसेस स्किप करें
+                if (tempLookupMap[student.id]) {
+                    index++;
+                    continue; 
+                }
 
                 try {
                     const img = new Image(); 
@@ -203,27 +210,42 @@
 
                     const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
                     if (detections) {
-                        labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(student.id, [detections.descriptor]));
+                        const newLd = new faceapi.LabeledFaceDescriptors(student.id, [detections.descriptor]);
+                        workingDescriptors.push(newLd);
+                        
+                        // तुरंत Lookup Map में डालें
+                        tempLookupMap[student.id] = {
+                            name: student.name,
+                            photo: student.photo
+                        };
+
+                        // 🌟 प्रोग्रेसिव हॉट-स्वैप (बिना इंतज़ार किए कैमरे को तुरंत डेटा ट्रांसफर)
+                        studentLookupMap = tempLookupMap;
+                        faceMatcher = new faceapi.FaceMatcher(workingDescriptors, 0.40);
+                        
+                        // हर 10 बच्चों के प्रोसेस होने पर कैशे को डिस्क पर राइट करें (ताकि क्रैश होने पर डेटा न खोए)
+                        if (index % 10 === 0 || index === data.length - 1) {
+                            const jsonReady = workingDescriptors.map(ld => ({
+                                label: ld.label,
+                                descriptors: ld.descriptors.map(d => Array.from(d))
+                            }));
+                            localStorage.setItem('aps_ai_matrix_cache', JSON.stringify(jsonReady));
+                            localStorage.setItem('aps_student_lookup_cache', JSON.stringify(tempLookupMap));
+                        }
                     }
-                } catch(e) {}
+                } catch(e) {
+                    console.log("Error processing student row:", e);
+                }
+                
+                index++;
+                subStatusText.innerText = `MAPPED: ${index}/${data.length}`;
             }
-            
-            if (labeledDescriptors.length > 0) {
-                studentLookupMap = tempLookupMap;
-                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.40);
-                
-                const jsonReadyDescriptors = labeledDescriptors.map(ld => ({
-                    label: ld.label,
-                    descriptors: ld.descriptors.map(d => Array.from(d))
-                }));
-                
-                localStorage.setItem('aps_ai_matrix_cache', JSON.stringify(jsonReadyDescriptors));
-                localStorage.setItem('aps_student_lookup_cache', JSON.stringify(tempLookupMap));
-                
-                subStatusText.innerText = "SCANNER ACTIVE";
-                statusDiv.innerText = "AI SECURITY SECURED";
-                statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
-            }
+
+            // फाइनल सेव और कंप्लीशन
+            cachedLabeledDescriptors = workingDescriptors;
+            subStatusText.innerText = "SCANNER ACTIVE";
+            statusDiv.innerText = "AI SECURITY SECURED";
+            statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
         }
 
         function startScanningLoop() {
@@ -231,15 +253,14 @@
             isLoopStarted = true;
 
             setInterval(async () => {
-                // अगर वीडियो का साइज अभी तक रेंडर नहीं हुआ है (0 है), तो लूप स्किप करें जब तक साइज न मिल जाए
                 if (video.videoWidth === 0 || video.videoHeight === 0) return;
 
-                // 🌟 फिक्स: बॉक्स का साइज लाइव वीडियो के डाइमेंशन के अनुसार हर बार री-मैप होगा
                 const displaySize = { width: video.clientWidth, height: video.clientHeight };
                 if (overlay.width !== displaySize.width || overlay.height !== displaySize.height) {
                     faceapi.matchDimensions(overlay, displaySize);
                 }
 
+                // अगर फेस मैटरिक्स अभी तक नहीं बना है, तो सिर्फ बॉक्स दिखाने का फ्रेम क्लियर रखें, कोड अटकेगा नहीं
                 if (isProcessing || !faceMatcher) return;
 
                 const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
