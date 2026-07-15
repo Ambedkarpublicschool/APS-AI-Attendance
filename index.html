@@ -71,6 +71,7 @@
         let faceMatcher = null;
         let isProcessing = false;
         let studentLookupMap = {}; 
+        let isLoopStarted = false;
 
         function playLoudKioskBeep() {
             try {
@@ -114,17 +115,21 @@
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-                // लोकल मेमोरी से डेटा तुरंत लोड करें
+                // लोकल कैशे से तुरंत डेटा उठाकर बिना देरी किए स्कैन चालू करना
                 const cachedData = localStorage.getItem('aps_student_cache');
                 if (cachedData) {
                     const parsedData = JSON.parse(cachedData);
-                    statusDiv.innerText = "LOCAL MODE ACTIVE";
+                    statusDiv.innerText = "LOCAL CACHE ACTIVE";
+                    statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
                     await buildFaceMatcher(parsedData);
                     startScanningLoop();
+                } else {
+                    statusDiv.innerText = "FIRST RUN: NEED ONLINE SYNC";
                 }
 
+                // बैकग्राउंड सिंक - यह यूजर को बिल्कुल नहीं अटकाएगा
                 if (navigator.onLine) {
-                    syncWithServer();
+                    setTimeout(syncWithServer, 500);
                 } else {
                     if(!cachedData) statusDiv.innerText = "OFFLINE & NO DATA!";
                     else setOfflineStatus();
@@ -134,11 +139,9 @@
 
         async function syncWithServer() {
             try {
-                if(!faceMatcher) statusDiv.innerText = "ERP LIVE SYNCING...";
                 const forceRefreshUrl = `${BASE_API_URL}?_=${Date.now()}`;
-                
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 12000); 
+                const timeoutId = setTimeout(() => controller.abort(), 10000); 
 
                 const response = await fetch(forceRefreshUrl, { signal: controller.signal });
                 clearTimeout(timeoutId);
@@ -151,14 +154,15 @@
                     if (incomingDataStr !== localDataStr) {
                         localStorage.setItem('aps_student_cache', incomingDataStr);
                         await buildFaceMatcher(resData.data);
-                        if (!faceMatcher) startScanningLoop();
+                        // अगर लोकल डेटा नहीं था और लूप चालू नहीं हुआ था, तो अब चालू करें
+                        if (!isLoopStarted) startScanningLoop();
                     }
                     
                     statusDiv.innerText = "AI SECURITY SECURED";
                     statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
                 }
             } catch (e) {
-                console.log("Using existing active cache:", e);
+                console.log("Sync bypassed:", e);
                 setOfflineStatus();
             }
         }
@@ -170,14 +174,12 @@
 
         async function buildFaceMatcher(data) {
             const labeledDescriptors = [];
-            studentLookupMap = {}; // री-बिल्ड मैप
-
+            studentLookupMap = {}; 
             subStatusText.innerText = "MAPPING MATRIX...";
             
             for (let student of data) {
                 if (!student.photo || student.photo.length < 50) continue; 
                 
-                // आईडी के आधार पर नाम और फोटो मैप में सुरक्षित करें
                 studentLookupMap[student.id] = {
                     name: student.name,
                     photo: student.photo
@@ -190,7 +192,6 @@
 
                     const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
                     if (detections) {
-                        // सिर्फ Student ID को लेबल बनाएं ताकि लाइब्रेरी क्रैश न हो
                         labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(student.id, [detections.descriptor]));
                     }
                 } catch(e) {}
@@ -205,7 +206,9 @@
         }
 
         function startScanningLoop() {
-            if (!faceMatcher) return;
+            if (isLoopStarted || !faceMatcher) return;
+            isLoopStarted = true;
+            
             const displaySize = { width: video.clientWidth, height: video.clientHeight };
             faceapi.matchDimensions(overlay, displaySize);
 
@@ -231,7 +234,6 @@
                     if (bestMatch.label !== 'unknown') {
                         const matchedId = bestMatch.label;
                         const studentInfo = studentLookupMap[matchedId];
-                        
                         if (studentInfo) {
                             triggerAttendance(matchedId, studentInfo.name, studentInfo.photo);
                         }
