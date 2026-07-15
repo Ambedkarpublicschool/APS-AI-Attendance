@@ -34,7 +34,7 @@
                 
                 <div class="absolute top-4 left-4 z-10">
                     <div id="system-status" class="px-4 py-1.5 rounded-full text-xs font-black bg-slate-900/80 text-cyan-400 border border-cyan-500/30 tracking-wider uppercase animate-pulse">
-                        STARTING SYSTEM...
+                        LOADING ATTENDANCE CORE...
                     </div>
                 </div>
 
@@ -72,7 +72,7 @@
         let isProcessing = false;
         let studentLookupMap = {}; 
         let isLoopStarted = false;
-        let cachedLabeledDescriptors = []; // प्रोग्रेसिव लोडिंग एरे
+        let cachedLabeledDescriptors = [];
 
         function playLoudKioskBeep() {
             try {
@@ -118,33 +118,28 @@
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-                // 🚀 लोकल कैशे चेक करें
                 const savedMatrix = localStorage.getItem('aps_ai_matrix_cache');
                 const savedLookup = localStorage.getItem('aps_student_lookup_cache');
                 
                 if (savedMatrix && savedLookup) {
                     studentLookupMap = JSON.parse(savedLookup);
                     const rawDescriptors = JSON.parse(savedMatrix);
-                    
                     cachedLabeledDescriptors = rawDescriptors.map(rd => {
                         const descriptors = rd.descriptors.map(d => new Float32Array(d));
                         return new faceapi.LabeledFaceDescriptors(rd.label, descriptors);
                     });
-                    
                     faceMatcher = new faceapi.FaceMatcher(cachedLabeledDescriptors, 0.40);
-                    startScanningLoop();
-                    
-                    statusDiv.innerText = "INSTANT LOCAL CACHE ACTIVE";
+                    statusDiv.innerText = "INSTANT CORE ACTIVE";
                     statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
                     subStatusText.innerText = "SCANNER ACTIVE";
                 } else {
-                    statusDiv.innerText = "FIRST RUN: INITIALIZING ONLINE";
-                    // पहली बार लोड होने पर भी खाली मैच्योरिटी के साथ स्कैनिंग लूप चालू रखें ताकि कैमरा चालू रहे
-                    startScanningLoop();
+                    statusDiv.innerText = "INITIAL SYNC IN PROGRESS...";
                 }
 
+                startScanningLoop();
+
                 if (navigator.onLine) {
-                    setTimeout(syncWithServer, 300);
+                    setTimeout(syncWithServer, 200);
                 } else {
                     setOfflineStatus();
                 }
@@ -157,25 +152,23 @@
                 const checkUrl = `${BASE_API_URL}?lastSync=${lastSyncTimestamp}&_=${Date.now()}`;
                 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); 
+                const timeoutId = setTimeout(() => controller.abort(), 12000); 
 
                 const response = await fetch(checkUrl, { signal: controller.signal });
                 clearTimeout(timeoutId);
                 const resData = await response.json();
 
                 if (resData && resData.status === "no_change") {
-                    statusDiv.innerText = "AI SECURITY SECURED (SMART CACHE)";
-                    statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
+                    setSuccessStatus();
                     return;
                 }
 
                 if (resData && resData.status === "success" && resData.data) {
                     localStorage.setItem('aps_last_sync_timestamp', resData.serverTime.toString());
-                    // प्रोग्रेसिव अपडेट शुरू करें
                     await buildAndCacheFaceMatcherProgressive(resData.data);
                 }
             } catch (e) {
-                console.log("Delta Sync bypassed:", e);
+                console.log("Sync skipped:", e);
                 setOfflineStatus();
             }
         }
@@ -185,11 +178,15 @@
             statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-amber-950 text-amber-400 border border-amber-500/30 tracking-wider uppercase";
         }
 
-        // 🧠 प्रोग्रेसिव मैट्रिक्स जनरेटर: यह एक-एक करके बच्चे को लोड करेगा और तुरंत कैशे में सेव करेगा
+        function setSuccessStatus() {
+            statusDiv.innerText = "AI SECURITY SECURED";
+            statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
+            subStatusText.innerText = "SCANNER ACTIVE";
+        }
+
         async function buildAndCacheFaceMatcherProgressive(data) {
             subStatusText.innerText = "PROCESSING FRESH MATRIX...";
             
-            // पुराने प्रोग्रेसिव लोड को एरे में कॉपी करें
             let tempLookupMap = JSON.parse(localStorage.getItem('aps_student_lookup_cache') || '{}');
             let workingDescriptors = [...cachedLabeledDescriptors];
 
@@ -197,7 +194,6 @@
             for (let student of data) {
                 if (!student.photo || student.photo.length < 50) continue; 
                 
-                // अगर यह स्टूडेंट पहले से मैप में सही तरीके से सेव्ड है, तो प्रोसेस स्किप करें
                 if (tempLookupMap[student.id]) {
                     index++;
                     continue; 
@@ -213,17 +209,14 @@
                         const newLd = new faceapi.LabeledFaceDescriptors(student.id, [detections.descriptor]);
                         workingDescriptors.push(newLd);
                         
-                        // तुरंत Lookup Map में डालें
                         tempLookupMap[student.id] = {
                             name: student.name,
                             photo: student.photo
                         };
 
-                        // 🌟 प्रोग्रेसिव हॉट-स्वैप (बिना इंतज़ार किए कैमरे को तुरंत डेटा ट्रांसफर)
                         studentLookupMap = tempLookupMap;
                         faceMatcher = new faceapi.FaceMatcher(workingDescriptors, 0.40);
                         
-                        // हर 10 बच्चों के प्रोसेस होने पर कैशे को डिस्क पर राइट करें (ताकि क्रैश होने पर डेटा न खोए)
                         if (index % 10 === 0 || index === data.length - 1) {
                             const jsonReady = workingDescriptors.map(ld => ({
                                 label: ld.label,
@@ -234,18 +227,15 @@
                         }
                     }
                 } catch(e) {
-                    console.log("Error processing student row:", e);
+                    console.log("Error row:", e);
                 }
                 
                 index++;
                 subStatusText.innerText = `MAPPED: ${index}/${data.length}`;
             }
 
-            // फाइनल सेव और कंप्लीशन
             cachedLabeledDescriptors = workingDescriptors;
-            subStatusText.innerText = "SCANNER ACTIVE";
-            statusDiv.innerText = "AI SECURITY SECURED";
-            statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
+            setSuccessStatus();
         }
 
         function startScanningLoop() {
@@ -260,7 +250,6 @@
                     faceapi.matchDimensions(overlay, displaySize);
                 }
 
-                // अगर फेस मैटरिक्स अभी तक नहीं बना है, तो सिर्फ बॉक्स दिखाने का फ्रेम क्लियर रखें, कोड अटकेगा नहीं
                 if (isProcessing || !faceMatcher) return;
 
                 const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
