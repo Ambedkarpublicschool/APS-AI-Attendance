@@ -34,13 +34,13 @@
                 
                 <div class="absolute top-4 left-4 z-10">
                     <div id="system-status" class="px-4 py-1.5 rounded-full text-xs font-black bg-slate-900/80 text-cyan-400 border border-cyan-500/30 tracking-wider uppercase animate-pulse">
-                        CORE INITIALIZING...
+                        STARTING SYSTEM...
                     </div>
                 </div>
 
                 <div id="sub-status" class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-md border border-cyan-500/30 px-6 py-2 rounded-full shadow-lg z-10 flex items-center gap-2">
                     <span class="flex h-2 w-2 relative"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span></span>
-                    <h3 class="text-[11px] font-black tracking-widest text-cyan-400 uppercase">SCANNER READY...</h3>
+                    <h3 id="sub-status-text" class="text-[11px] font-black tracking-widest text-cyan-400 uppercase">SCANNER READY...</h3>
                 </div>
             </div>
 
@@ -64,13 +64,13 @@
         const video = document.getElementById('video');
         const overlay = document.getElementById('overlay');
         const statusDiv = document.getElementById('system-status');
-        const subStatus = document.getElementById('sub-status');
+        const subStatusText = document.getElementById('sub-status-text');
         const cameraView = document.getElementById('camera-view');
         const resultDiv = document.getElementById('info-result');
         
         let faceMatcher = null;
         let isProcessing = false;
-        let localStudentData = [];
+        let studentLookupMap = {}; 
 
         function playLoudKioskBeep() {
             try {
@@ -114,20 +114,19 @@
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-                // मोबाइल की लोकल कैशे मेमोरी (LocalStorage) से डेटा फ़ास्ट लोड करना
+                // लोकल मेमोरी से डेटा तुरंत लोड करें
                 const cachedData = localStorage.getItem('aps_student_cache');
                 if (cachedData) {
-                    localStudentData = JSON.parse(cachedData);
-                    statusDiv.innerText = "LOCAL CACHE ACTIVE";
-                    await buildFaceMatcher(localStudentData);
+                    const parsedData = JSON.parse(cachedData);
+                    statusDiv.innerText = "LOCAL MODE ACTIVE";
+                    await buildFaceMatcher(parsedData);
                     startScanningLoop();
                 }
 
-                // बैकग्राउंड सिंक इंजन जो यूजर स्क्रीन को फ्री रखता है
                 if (navigator.onLine) {
                     syncWithServer();
                 } else {
-                    if(!cachedData) statusDiv.innerText = "OFFLINE & NO CACHE!";
+                    if(!cachedData) statusDiv.innerText = "OFFLINE & NO DATA!";
                     else setOfflineStatus();
                 }
             } catch (err) { statusDiv.innerText = "SYSTEM LOCKDOWN!"; }
@@ -139,7 +138,7 @@
                 const forceRefreshUrl = `${BASE_API_URL}?_=${Date.now()}`;
                 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 सेकंड नेटवर्क गेटवे टाइमआउट
+                const timeoutId = setTimeout(() => controller.abort(), 12000); 
 
                 const response = await fetch(forceRefreshUrl, { signal: controller.signal });
                 clearTimeout(timeoutId);
@@ -149,11 +148,9 @@
                     const incomingDataStr = JSON.stringify(resData.data);
                     const localDataStr = localStorage.getItem('aps_student_cache');
 
-                    // अगर शीट का डेटा लोकल कैशे से अलग है, सिर्फ तभी री-मैप करेंगे
                     if (incomingDataStr !== localDataStr) {
                         localStorage.setItem('aps_student_cache', incomingDataStr);
-                        localStudentData = resData.data;
-                        await buildFaceMatcher(localStudentData);
+                        await buildFaceMatcher(resData.data);
                         if (!faceMatcher) startScanningLoop();
                     }
                     
@@ -161,22 +158,31 @@
                     statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-emerald-950 text-emerald-400 border border-emerald-500/30 tracking-wider uppercase animate-pulse";
                 }
             } catch (e) {
-                console.log("Network sync bypassed, using active cache:", e);
+                console.log("Using existing active cache:", e);
                 setOfflineStatus();
             }
         }
 
         function setOfflineStatus() {
-            if(localStudentData.length > 0) {
-                statusDiv.innerText = "RUNNING OFFLINE MODE";
-                statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-amber-950 text-amber-400 border border-amber-500/30 tracking-wider uppercase";
-            }
+            statusDiv.innerText = "RUNNING OFFLINE MODE";
+            statusDiv.className = "px-4 py-1.5 rounded-full text-xs font-black bg-amber-950 text-amber-400 border border-amber-500/30 tracking-wider uppercase";
         }
 
         async function buildFaceMatcher(data) {
             const labeledDescriptors = [];
+            studentLookupMap = {}; // री-बिल्ड मैप
+
+            subStatusText.innerText = "MAPPING MATRIX...";
+            
             for (let student of data) {
                 if (!student.photo || student.photo.length < 50) continue; 
+                
+                // आईडी के आधार पर नाम और फोटो मैप में सुरक्षित करें
+                studentLookupMap[student.id] = {
+                    name: student.name,
+                    photo: student.photo
+                };
+
                 try {
                     const img = new Image(); 
                     img.src = student.photo; 
@@ -184,12 +190,17 @@
 
                     const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
                     if (detections) {
-                        labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(`${student.id}||${student.name}||${student.photo}`, [detections.descriptor]));
+                        // सिर्फ Student ID को लेबल बनाएं ताकि लाइब्रेरी क्रैश न हो
+                        labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(student.id, [detections.descriptor]));
                     }
                 } catch(e) {}
             }
+            
             if (labeledDescriptors.length > 0) {
-                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.38);
+                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.40);
+                subStatusText.innerText = "SCANNER ACTIVE";
+            } else {
+                subStatusText.innerText = "MAP EMPTY!";
             }
         }
 
@@ -218,8 +229,12 @@
 
                     const bestMatch = faceMatcher.findBestMatch(targetDetection.descriptor);
                     if (bestMatch.label !== 'unknown') {
-                        const [id, name, photo] = bestMatch.label.split('||');
-                        triggerAttendance(id, name, photo);
+                        const matchedId = bestMatch.label;
+                        const studentInfo = studentLookupMap[matchedId];
+                        
+                        if (studentInfo) {
+                            triggerAttendance(matchedId, studentInfo.name, studentInfo.photo);
+                        }
                     }
                 }
             }, 250); 
@@ -240,8 +255,6 @@
                 const sheetTriggerUrl = `${BASE_API_URL}?studentId=${encodeURIComponent(studentId)}`;
                 if (navigator.onLine) {
                     fetch(sheetTriggerUrl, { method: 'POST', mode: 'no-cors' });
-                } else {
-                    console.log("Offline mode: Attendance logged locally for ID:", studentId);
                 }
             } catch (err) {}
 
